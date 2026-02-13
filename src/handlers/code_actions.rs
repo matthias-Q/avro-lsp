@@ -1,7 +1,7 @@
 use async_lsp::lsp_types::{CodeAction, Position, Range, Url};
 
 use crate::schema::{AvroSchema, AvroType, Field};
-use crate::schema::{EnumSchema, FixedSchema, RecordSchema};
+use crate::schema::{EnumSchema,  RecordSchema};
 use crate::state::{AstNode, find_node_at_position};
 
 /// Get code actions available at the given range
@@ -691,7 +691,7 @@ mod tests {
             "Should have 'Add documentation for field' action. Available: {:?}",
             actions.iter().map(|a| &a.title).collect::<Vec<_>>()
         );
-        
+
         let action = add_doc.unwrap();
 
         // Check the edit
@@ -734,7 +734,7 @@ mod tests {
         assert!(actions1.is_some());
         assert!(actions1.unwrap().iter().any(|a| a.title.contains("Add documentation for field")));
 
-        // Position 2: On the type value  
+        // Position 2: On the type value
         let position2 = Position {
             line: 4,
             character: 30, // On "int"
@@ -746,7 +746,7 @@ mod tests {
         let actions2_vec = actions2.unwrap();
         let action_titles: Vec<_> = actions2_vec.iter().map(|a| a.title.as_str()).collect();
         println!("Actions at type value: {:?}", action_titles);
-        // At type position, we prioritize FieldType for "Make nullable", 
+        // At type position, we prioritize FieldType for "Make nullable",
         // so Field doc might not be there - that's OK
     }
 }
