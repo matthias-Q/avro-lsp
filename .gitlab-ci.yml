@@ -210,10 +210,15 @@ release:
   script:
     - apk add --no-cache curl
     - |
+      # Compute version number from tag (strip 'v' prefix)
+      export VERSION_NUMBER="${CI_COMMIT_TAG#v}"
+      echo "VERSION_NUMBER=${VERSION_NUMBER}" >> release.env
+      echo "Version number: $VERSION_NUMBER"
+    - |
       # Extract changelog section for this version
       VERSION_NUMBER="${CI_COMMIT_TAG#v}"
       echo "Extracting changelog for version: $VERSION_NUMBER"
-      
+
       # Extract the section between this version and the next version header (or end of file)
       awk -v ver="$VERSION_NUMBER" '
         /^## \[/ {
@@ -226,7 +231,7 @@ release:
         }
         found { print }
       ' CHANGELOG.md > release_notes.md
-      
+
       # Show what we extracted for debugging
       echo "=== Extracted changelog ==="
       cat release_notes.md
@@ -235,28 +240,36 @@ release:
       # Upload Linux binary
       curl --header "JOB-TOKEN: ${CI_JOB_TOKEN}" --upload-file artifacts/avro-lsp-linux-x64 \
         "${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic/avro-lsp/${CI_COMMIT_TAG}/avro-lsp-linux-x64"
-      
+
       # Upload Windows binary
       curl --header "JOB-TOKEN: ${CI_JOB_TOKEN}" --upload-file artifacts/avro-lsp-win32-x64.exe \
         "${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic/avro-lsp/${CI_COMMIT_TAG}/avro-lsp-win32-x64.exe"
-      
+
       # Upload macOS x86_64 binary
       curl --header "JOB-TOKEN: ${CI_JOB_TOKEN}" --upload-file artifacts/avro-lsp-darwin-x64 \
         "${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic/avro-lsp/${CI_COMMIT_TAG}/avro-lsp-darwin-x64"
-      
+
       # Upload macOS aarch64 binary
       curl --header "JOB-TOKEN: ${CI_JOB_TOKEN}" --upload-file artifacts/avro-lsp-darwin-arm64 \
         "${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic/avro-lsp/${CI_COMMIT_TAG}/avro-lsp-darwin-arm64"
-      
-      # Upload VS Code extension
+
+      # Upload VS Code extension with predictable filename
+      # vsce generates: avro-lsp-<version>.vsix (version from package.json, should match tag without 'v')
+      VERSION_NUMBER="${CI_COMMIT_TAG#v}"
+      EXPECTED_VSIX_NAME="avro-lsp-${VERSION_NUMBER}.vsix"
+
       VSIX_FILE=$(ls artifacts/*.vsix)
-      VSIX_NAME=$(basename "$VSIX_FILE")
-      echo "Uploading VSIX: $VSIX_NAME"
+      ACTUAL_VSIX_NAME=$(basename "$VSIX_FILE")
+
+      if [ "$ACTUAL_VSIX_NAME" != "$EXPECTED_VSIX_NAME" ]; then
+        echo "ERROR: Expected VSIX filename '$EXPECTED_VSIX_NAME' but found '$ACTUAL_VSIX_NAME'"
+        echo "This likely means package.json version doesn't match the git tag"
+        exit 1
+      fi
+
+      echo "Uploading VSIX: $EXPECTED_VSIX_NAME"
       curl --header "JOB-TOKEN: ${CI_JOB_TOKEN}" --upload-file "$VSIX_FILE" \
-        "${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic/avro-lsp/${CI_COMMIT_TAG}/${VSIX_NAME}"
-      
-      # Store the actual VSIX filename for release assets
-      echo "VSIX_FILENAME=${VSIX_NAME}" >> release.env
+        "${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic/avro-lsp/${CI_COMMIT_TAG}/${EXPECTED_VSIX_NAME}"
   artifacts:
     reports:
       dotenv: release.env
@@ -279,5 +292,5 @@ release:
           url: '${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic/avro-lsp/${CI_COMMIT_TAG}/avro-lsp-darwin-arm64'
           link_type: 'package'
         - name: 'VS Code Extension (.vsix)'
-          url: '${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic/avro-lsp/${CI_COMMIT_TAG}/${VSIX_FILENAME}'
+          url: '${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic/avro-lsp/${CI_COMMIT_TAG}/avro-lsp-${VERSION_NUMBER}.vsix'
           link_type: 'package'
