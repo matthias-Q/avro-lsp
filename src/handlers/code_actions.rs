@@ -553,6 +553,8 @@ pub fn get_quick_fixes_from_diagnostics(
     uri: &Url,
     diagnostics: &[Diagnostic],
 ) -> Vec<CodeAction> {
+    use crate::schema::SchemaError;
+
     tracing::debug!(
         "get_quick_fixes_from_diagnostics called with {} diagnostics",
         diagnostics.len()
@@ -562,54 +564,180 @@ pub fn get_quick_fixes_from_diagnostics(
     for diagnostic in diagnostics {
         tracing::debug!("Processing diagnostic: {}", diagnostic.message);
 
-        // Strip "Validation error: " prefix if present
-        let msg = diagnostic
-            .message
-            .strip_prefix("Validation error: ")
-            .unwrap_or(&diagnostic.message);
+        // Try to deserialize structured error data from diagnostic
+        let structured_error: Option<SchemaError> = diagnostic
+            .data
+            .as_ref()
+            .and_then(|data| serde_json::from_value(data.clone()).ok());
 
-        tracing::debug!("Stripped message: {}", msg);
-
-        // Try to generate fixes based on the error message
-        if let Some(remainder) = msg.strip_prefix("Invalid name '") {
-            if let Some(name_end) = remainder.find('\'') {
-                let invalid_name = &remainder[..name_end];
-                tracing::debug!("Found invalid name: {}", invalid_name);
-                if let Some(fix) = create_fix_invalid_name(uri, schema, diagnostic, invalid_name) {
-                    actions.push(fix);
+        if let Some(error) = structured_error {
+            // Use structured error data - no string parsing needed!
+            tracing::debug!("Found structured error data: {:?}", error);
+            
+            match error {
+                SchemaError::InvalidName { name, suggested, .. } => {
+                    tracing::debug!("Invalid name error: {} -> {:?}", name, suggested);
+                    if let Some(fix) = create_fix_invalid_name_structured(uri, schema, diagnostic, &name, suggested.as_deref()) {
+                        actions.push(fix);
+                    }
+                }
+                SchemaError::InvalidNamespace { namespace, suggested, .. } => {
+                    tracing::debug!("Invalid namespace error: {} -> {:?}", namespace, suggested);
+                    if let Some(fix) = create_fix_invalid_namespace_structured(uri, schema, diagnostic, &namespace, suggested.as_deref()) {
+                        actions.push(fix);
+                    }
+                }
+                SchemaError::DuplicateSymbol { symbol, .. } => {
+                    tracing::debug!("Duplicate symbol error: {}", symbol);
+                    if let Some(fix) = create_fix_duplicate_symbol(uri, text, diagnostic, &symbol) {
+                        actions.push(fix);
+                    }
+                }
+                SchemaError::Custom { message, .. } if message.contains("logical type") && message.contains("requires") => {
+                    tracing::debug!("Logical type error");
+                    if let Some(fix) = create_fix_logical_type(uri, schema, text, diagnostic) {
+                        actions.push(fix);
+                    }
+                }
+                _ => {
+                    tracing::debug!("No quick fix available for error type");
                 }
             }
-        } else if let Some(remainder) = msg.strip_prefix("Invalid namespace '") {
-            if let Some(ns_end) = remainder.find('\'') {
-                let invalid_namespace = &remainder[..ns_end];
-                tracing::debug!("Found invalid namespace: {}", invalid_namespace);
-                if let Some(fix) =
-                    create_fix_invalid_namespace(uri, schema, diagnostic, invalid_namespace)
+        } else {
+            // Fallback to string parsing for backward compatibility or diagnostics without structured data
+            tracing::debug!("No structured error data, falling back to string parsing");
+            let msg = diagnostic
+                .message
+                .strip_prefix("Validation error: ")
+                .unwrap_or(&diagnostic.message);
+
+            if let Some(remainder) = msg.strip_prefix("Invalid name '") {
+                if let Some(name_end) = remainder.find('\'') {
+                    let invalid_name = &remainder[..name_end];
+                    if let Some(fix) = create_fix_invalid_name(uri, schema, diagnostic, invalid_name) {
+                        actions.push(fix);
+                    }
+                }
+            } else if let Some(remainder) = msg.strip_prefix("Invalid namespace '") {
+                if let Some(ns_end) = remainder.find('\'') {
+                    let invalid_namespace = &remainder[..ns_end];
+                    if let Some(fix) =
+                        create_fix_invalid_namespace(uri, schema, diagnostic, invalid_namespace)
+                    {
+                        actions.push(fix);
+                    }
+                }
+            } else if msg.contains("logical type") && msg.contains("requires") {
+                if let Some(fix) = create_fix_logical_type(uri, schema, text, diagnostic) {
+                    actions.push(fix);
+                }
+            } else if let Some(remainder) = msg.strip_prefix("Duplicate symbol '")
+                && let Some(symbol_end) = remainder.find('\'')
+            {
+                let duplicate_symbol = &remainder[..symbol_end];
+                if let Some(fix) = create_fix_duplicate_symbol(uri, text, diagnostic, duplicate_symbol)
                 {
                     actions.push(fix);
                 }
             }
-        } else if msg.contains("logical type") && msg.contains("requires") {
-            // e.g., "Invalid logical type 'uuid' for type int - requires string"
-            tracing::debug!("Found logical type error");
-            if let Some(fix) = create_fix_logical_type(uri, schema, text, diagnostic) {
-                actions.push(fix);
-            }
-        } else if let Some(remainder) = msg.strip_prefix("Duplicate symbol '")
-            && let Some(symbol_end) = remainder.find('\'')
-        {
-            let duplicate_symbol = &remainder[..symbol_end];
-            tracing::debug!("Found duplicate symbol: {}", duplicate_symbol);
-            if let Some(fix) = create_fix_duplicate_symbol(uri, text, diagnostic, duplicate_symbol)
-            {
-                actions.push(fix);
-            }
-        } else {
-            tracing::debug!("No matching pattern for diagnostic: {}", msg);
         }
     }
 
     actions
+}
+
+/// Create a quick fix for invalid name errors using structured error data
+fn create_fix_invalid_name_structured(
+    uri: &Url,
+    _schema: &AvroSchema,
+    diagnostic: &Diagnostic,
+    invalid_name: &str,
+    suggested_name: Option<&str>,
+) -> Option<CodeAction> {
+    use async_lsp::lsp_types::{CodeActionKind, TextEdit, WorkspaceEdit};
+    use std::collections::HashMap;
+
+    // Use suggested name from error if available, otherwise generate one
+    let fixed_name = suggested_name
+        .map(|s| s.to_string())
+        .unwrap_or_else(|| fix_invalid_name(invalid_name));
+
+    // Try to use range from error first, otherwise search for it
+    let name_range = diagnostic.range;
+
+    let mut changes = HashMap::new();
+    changes.insert(
+        uri.clone(),
+        vec![TextEdit {
+            range: name_range,
+            new_text: format!("\"{}\"", fixed_name),
+        }],
+    );
+
+    Some(CodeAction {
+        title: format!("Fix invalid name: '{}' → '{}'", invalid_name, fixed_name),
+        kind: Some(CodeActionKind::QUICKFIX),
+        diagnostics: Some(vec![diagnostic.clone()]),
+        edit: Some(WorkspaceEdit {
+            changes: Some(changes),
+            ..Default::default()
+        }),
+        ..Default::default()
+    })
+}
+
+/// Create a quick fix for invalid namespace errors using structured error data
+fn create_fix_invalid_namespace_structured(
+    uri: &Url,
+    _schema: &AvroSchema,
+    diagnostic: &Diagnostic,
+    invalid_namespace: &str,
+    suggested_namespace: Option<&str>,
+) -> Option<CodeAction> {
+    use async_lsp::lsp_types::{CodeActionKind, TextEdit, WorkspaceEdit};
+    use std::collections::HashMap;
+
+    // Use suggested namespace from error if available, otherwise generate one
+    let fixed_namespace = suggested_namespace
+        .map(|s| s.to_string())
+        .unwrap_or_else(|| fix_invalid_namespace(invalid_namespace));
+
+    // Try to use range from error first, otherwise search for it
+    let namespace_range = diagnostic.range;
+
+    let mut changes = HashMap::new();
+    changes.insert(
+        uri.clone(),
+        vec![TextEdit {
+            range: namespace_range,
+            new_text: if fixed_namespace.is_empty() {
+                // If namespace becomes empty, remove the field entirely
+                String::new()
+            } else {
+                format!("\"{}\"", fixed_namespace)
+            },
+        }],
+    );
+
+    let title = if fixed_namespace.is_empty() {
+        format!("Remove invalid namespace '{}'", invalid_namespace)
+    } else {
+        format!(
+            "Fix invalid namespace: '{}' → '{}'",
+            invalid_namespace, fixed_namespace
+        )
+    };
+
+    Some(CodeAction {
+        title,
+        kind: Some(CodeActionKind::QUICKFIX),
+        diagnostics: Some(vec![diagnostic.clone()]),
+        edit: Some(WorkspaceEdit {
+            changes: Some(changes),
+            ..Default::default()
+        }),
+        ..Default::default()
+    })
 }
 
 /// Create a quick fix for invalid name errors

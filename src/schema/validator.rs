@@ -105,22 +105,23 @@ impl AvroValidator {
         resolver: &dyn TypeResolver,
     ) -> Result<()> {
         // Validate name
-        self.validate_name(&record.name)?;
+        self.validate_name_with_range(&record.name, record.name_range)?;
 
         // Validate namespace if present
         if let Some(namespace) = &record.namespace {
-            self.validate_namespace(namespace)?;
+            self.validate_namespace_with_range(namespace, record.namespace_range)?;
         }
 
         // Validate fields
         if record.fields.is_empty() {
-            return Err(SchemaError::Custom(
-                "Record must have at least one field".to_string(),
-            ));
+            return Err(SchemaError::Custom {
+                message: "Record must have at least one field".to_string(),
+                range: record.range,
+            });
         }
 
         for field in &record.fields {
-            self.validate_name(&field.name)?;
+            self.validate_name_with_range(&field.name, field.name_range)?;
             self.validate_type_with_resolver(&field.field_type, named_types, resolver)?;
 
             // Validate default value if present
@@ -134,18 +135,19 @@ impl AvroValidator {
 
     fn validate_enum(&self, enum_schema: &EnumSchema) -> Result<()> {
         // Validate name
-        self.validate_name(&enum_schema.name)?;
+        self.validate_name_with_range(&enum_schema.name, enum_schema.name_range)?;
 
         // Validate namespace if present
         if let Some(namespace) = &enum_schema.namespace {
-            self.validate_namespace(namespace)?;
+            self.validate_namespace_with_range(namespace, enum_schema.namespace_range)?;
         }
 
         // Validate symbols
         if enum_schema.symbols.is_empty() {
-            return Err(SchemaError::Custom(
-                "Enum must have at least one symbol".to_string(),
-            ));
+            return Err(SchemaError::Custom {
+                message: "Enum must have at least one symbol".to_string(),
+                range: enum_schema.range,
+            });
         }
 
         // Check for duplicate symbols
@@ -153,7 +155,11 @@ impl AvroValidator {
         for symbol in &enum_schema.symbols {
             self.validate_name(symbol)?;
             if !seen.insert(symbol) {
-                return Err(SchemaError::DuplicateSymbol(symbol.clone()));
+                return Err(SchemaError::DuplicateSymbol {
+                    symbol: symbol.clone(),
+                    first_occurrence: None,
+                    duplicate_occurrence: None,
+                });
             }
         }
 
@@ -161,10 +167,10 @@ impl AvroValidator {
         if let Some(default) = &enum_schema.default
             && !enum_schema.symbols.contains(default)
         {
-            return Err(SchemaError::Custom(format!(
-                "Default value '{}' is not in symbols list",
-                default
-            )));
+            return Err(SchemaError::Custom {
+                message: format!("Default value '{}' is not in symbols list", default),
+                range: enum_schema.range,
+            });
         }
 
         Ok(())
@@ -172,18 +178,19 @@ impl AvroValidator {
 
     fn validate_fixed(&self, fixed: &FixedSchema) -> Result<()> {
         // Validate name
-        self.validate_name(&fixed.name)?;
+        self.validate_name_with_range(&fixed.name, fixed.name_range)?;
 
         // Validate namespace if present
         if let Some(namespace) = &fixed.namespace {
-            self.validate_namespace(namespace)?;
+            self.validate_namespace_with_range(namespace, fixed.namespace_range)?;
         }
 
         // Size must be positive
         if fixed.size == 0 {
-            return Err(SchemaError::Custom(
-                "Fixed size must be greater than 0".to_string(),
-            ));
+            return Err(SchemaError::Custom {
+                message: "Fixed size must be greater than 0".to_string(),
+                range: fixed.range,
+            });
         }
 
         // Validate logical type if present
@@ -203,33 +210,38 @@ impl AvroValidator {
             "decimal" => {
                 // Decimal requires precision
                 if fixed.precision.is_none() {
-                    return Err(SchemaError::Custom(
-                        "Decimal logical type requires 'precision' attribute".to_string(),
-                    ));
+                    return Err(SchemaError::Custom {
+                        message: "Decimal logical type requires 'precision' attribute".to_string(),
+                        range: fixed.range,
+                    });
                 }
                 // Scale is optional but must be <= precision if present
                 if let (Some(precision), Some(scale)) = (fixed.precision, fixed.scale)
                     && scale > precision
                 {
-                    return Err(SchemaError::Custom(format!(
-                        "Decimal scale ({}) cannot be greater than precision ({})",
-                        scale, precision
-                    )));
+                    return Err(SchemaError::Custom {
+                        message: format!(
+                            "Decimal scale ({}) cannot be greater than precision ({})",
+                            scale, precision
+                        ),
+                        range: fixed.range,
+                    });
                 }
             }
             "duration" => {
                 // Duration must be exactly 12 bytes
                 if fixed.size != 12 {
-                    return Err(SchemaError::Custom(
-                        "Duration logical type requires fixed size of 12 bytes".to_string(),
-                    ));
+                    return Err(SchemaError::Custom {
+                        message: "Duration logical type requires fixed size of 12 bytes".to_string(),
+                        range: fixed.range,
+                    });
                 }
             }
             _ => {
-                return Err(SchemaError::Custom(format!(
-                    "Unknown logical type '{}' for fixed type",
-                    logical_type
-                )));
+                return Err(SchemaError::Custom {
+                    message: format!("Unknown logical type '{}' for fixed type", logical_type),
+                    range: fixed.range,
+                });
             }
         }
         Ok(())
@@ -258,27 +270,34 @@ impl AvroValidator {
                 (PrimitiveType::Bytes, "decimal") => {
                     // Decimal requires precision
                     if primitive.precision.is_none() {
-                        return Err(SchemaError::Custom(
-                            "Decimal logical type requires 'precision' attribute".to_string(),
-                        ));
+                        return Err(SchemaError::Custom {
+                            message: "Decimal logical type requires 'precision' attribute".to_string(),
+                            range: primitive.range,
+                        });
                     }
                     // Scale is optional but must be <= precision if present
                     if let (Some(precision), Some(scale)) = (primitive.precision, primitive.scale)
                         && scale > precision
                     {
-                        return Err(SchemaError::Custom(format!(
-                            "Decimal scale ({}) cannot be greater than precision ({})",
-                            scale, precision
-                        )));
+                        return Err(SchemaError::Custom {
+                            message: format!(
+                                "Decimal scale ({}) cannot be greater than precision ({})",
+                                scale, precision
+                            ),
+                            range: primitive.range,
+                        });
                     }
                     Ok(())
                 }
 
                 // Invalid combinations
-                _ => Err(SchemaError::Custom(format!(
-                    "Invalid logical type '{}' for primitive type '{:?}'",
-                    logical_type, primitive.primitive_type
-                ))),
+                _ => Err(SchemaError::Custom {
+                    message: format!(
+                        "Invalid logical type '{}' for primitive type '{:?}'",
+                        logical_type, primitive.primitive_type
+                    ),
+                    range: primitive.range,
+                }),
             }
         } else {
             // No logical type is valid
@@ -303,13 +322,16 @@ impl AvroValidator {
         resolver: &dyn TypeResolver,
     ) -> Result<()> {
         if types.is_empty() {
-            return Err(SchemaError::Custom("Union cannot be empty".to_string()));
+            return Err(SchemaError::Custom {
+                message: "Union cannot be empty".to_string(),
+                range: None,
+            });
         }
 
         // Check for nested unions
         for t in types {
             if matches!(t, AvroType::Union(_)) {
-                return Err(SchemaError::NestedUnion);
+                return Err(SchemaError::NestedUnion { range: None });
             }
         }
 
@@ -318,7 +340,10 @@ impl AvroValidator {
         for t in types {
             let signature = self.type_signature(t);
             if !type_signatures.insert(signature.clone()) {
-                return Err(SchemaError::DuplicateUnionType(signature));
+                return Err(SchemaError::DuplicateUnionType {
+                    type_signature: signature,
+                    range: None,
+                });
             }
         }
 
@@ -356,24 +381,55 @@ impl AvroValidator {
             return Ok(());
         }
 
-        Err(SchemaError::UnknownTypeReference(name.to_string()))
+        Err(SchemaError::UnknownTypeReference {
+            type_name: name.to_string(),
+            range: None,
+        })
     }
 
+    #[allow(dead_code)] // Used in tests
     fn validate_name(&self, name: &str) -> Result<()> {
+        self.validate_name_with_range(name, None)
+    }
+
+    fn validate_name_with_range(
+        &self,
+        name: &str,
+        range: Option<async_lsp::lsp_types::Range>,
+    ) -> Result<()> {
         if !self.name_regex.is_match(name) {
-            return Err(SchemaError::InvalidName(name.to_string()));
+            let suggested = fix_invalid_name(name);
+            return Err(SchemaError::InvalidName {
+                name: name.to_string(),
+                range,
+                suggested: Some(suggested),
+            });
         }
         Ok(())
     }
 
+    #[allow(dead_code)] // Used in tests
     fn validate_namespace(&self, namespace: &str) -> Result<()> {
+        self.validate_namespace_with_range(namespace, None)
+    }
+
+    fn validate_namespace_with_range(
+        &self,
+        namespace: &str,
+        range: Option<async_lsp::lsp_types::Range>,
+    ) -> Result<()> {
         if namespace.is_empty() {
             return Ok(()); // Empty namespace is valid
         }
 
         for part in namespace.split('.') {
             if !self.name_regex.is_match(part) {
-                return Err(SchemaError::InvalidNamespace(namespace.to_string()));
+                let suggested = fix_invalid_namespace(namespace);
+                return Err(SchemaError::InvalidNamespace {
+                    namespace: namespace.to_string(),
+                    range,
+                    suggested: Some(suggested),
+                });
             }
         }
         Ok(())
@@ -392,47 +448,57 @@ impl AvroValidator {
             AvroType::Primitive(prim) => match prim {
                 PrimitiveType::Null => {
                     if !default.is_null() {
-                        return Err(SchemaError::Custom(
-                            "Default value for null type must be null".to_string(),
-                        ));
+                        return Err(SchemaError::Custom {
+                            message: "Default value for null type must be null".to_string(),
+                            range: None,
+                        });
                     }
                 }
                 PrimitiveType::Boolean => {
                     if !default.is_boolean() {
-                        return Err(SchemaError::Custom(
-                            "Default value for boolean type must be true or false".to_string(),
-                        ));
+                        return Err(SchemaError::Custom {
+                            message: "Default value for boolean type must be true or false".to_string(),
+                            range: None,
+                        });
                     }
                 }
                 PrimitiveType::Int | PrimitiveType::Long => {
                     if !default.is_number() {
-                        return Err(SchemaError::Custom(format!(
-                            "Default value for {:?} type must be a number",
-                            prim
-                        )));
+                        return Err(SchemaError::Custom {
+                            message: format!(
+                                "Default value for {:?} type must be a number",
+                                prim
+                            ),
+                            range: None,
+                        });
                     }
                 }
                 PrimitiveType::Float | PrimitiveType::Double => {
                     if !default.is_number() {
-                        return Err(SchemaError::Custom(format!(
-                            "Default value for {:?} type must be a number",
-                            prim
-                        )));
+                        return Err(SchemaError::Custom {
+                            message: format!(
+                                "Default value for {:?} type must be a number",
+                                prim
+                            ),
+                            range: None,
+                        });
                     }
                 }
                 PrimitiveType::String => {
                     if !default.is_string() {
-                        return Err(SchemaError::Custom(
-                            "Default value for string type must be a string".to_string(),
-                        ));
+                        return Err(SchemaError::Custom {
+                            message: "Default value for string type must be a string".to_string(),
+                            range: None,
+                        });
                     }
                 }
                 PrimitiveType::Bytes => {
                     // Bytes default must be a string (Unicode code points 0-255 mapped to bytes)
                     if !default.is_string() {
-                        return Err(SchemaError::Custom(
-                            "Default value for bytes type must be a string".to_string(),
-                        ));
+                        return Err(SchemaError::Custom {
+                            message: "Default value for bytes type must be a string".to_string(),
+                            range: None,
+                        });
                     }
                 }
             },
@@ -442,91 +508,109 @@ impl AvroValidator {
                 match prim_obj.primitive_type {
                     PrimitiveType::Null => {
                         if !default.is_null() {
-                            return Err(SchemaError::Custom(
-                                "Default value for null type must be null".to_string(),
-                            ));
+                            return Err(SchemaError::Custom {
+                                message: "Default value for null type must be null".to_string(),
+                                range: None,
+                            });
                         }
                     }
                     PrimitiveType::Boolean => {
                         if !default.is_boolean() {
-                            return Err(SchemaError::Custom(
-                                "Default value for boolean type must be true or false".to_string(),
-                            ));
+                            return Err(SchemaError::Custom {
+                                message: "Default value for boolean type must be true or false".to_string(),
+                                range: None,
+                            });
                         }
                     }
                     PrimitiveType::Int | PrimitiveType::Long => {
                         if !default.is_number() {
-                            return Err(SchemaError::Custom(format!(
-                                "Default value for {:?} type must be a number",
-                                prim_obj.primitive_type
-                            )));
+                            return Err(SchemaError::Custom {
+                                message: format!(
+                                    "Default value for {:?} type must be a number",
+                                    prim_obj.primitive_type
+                                ),
+                                range: None,
+                            });
                         }
                     }
                     PrimitiveType::Float | PrimitiveType::Double => {
                         if !default.is_number() {
-                            return Err(SchemaError::Custom(format!(
-                                "Default value for {:?} type must be a number",
-                                prim_obj.primitive_type
-                            )));
+                            return Err(SchemaError::Custom {
+                                message: format!(
+                                    "Default value for {:?} type must be a number",
+                                    prim_obj.primitive_type
+                                ),
+                                range: None,
+                            });
                         }
                     }
                     PrimitiveType::String => {
                         if !default.is_string() {
-                            return Err(SchemaError::Custom(
-                                "Default value for string type must be a string".to_string(),
-                            ));
+                            return Err(SchemaError::Custom {
+                                message: "Default value for string type must be a string".to_string(),
+                                range: None,
+                            });
                         }
                     }
                     PrimitiveType::Bytes => {
                         if !default.is_string() {
-                            return Err(SchemaError::Custom(
-                                "Default value for bytes type must be a string".to_string(),
-                            ));
+                            return Err(SchemaError::Custom {
+                                message: "Default value for bytes type must be a string".to_string(),
+                                range: None,
+                            });
                         }
                     }
                 }
             }
             AvroType::Record(_) => {
                 if !default.is_object() {
-                    return Err(SchemaError::Custom(
-                        "Default value for record type must be an object".to_string(),
-                    ));
+                    return Err(SchemaError::Custom {
+                        message: "Default value for record type must be an object".to_string(),
+                        range: None,
+                    });
                 }
             }
             AvroType::Enum(enum_schema) => {
                 if let Value::String(s) = default {
                     if !enum_schema.symbols.contains(s) {
-                        return Err(SchemaError::Custom(format!(
-                            "Default value '{}' is not a valid enum symbol",
-                            s
-                        )));
+                        return Err(SchemaError::Custom {
+                            message: format!(
+                                "Default value '{}' is not a valid enum symbol",
+                                s
+                            ),
+                            range: None,
+                        });
                     }
                 } else {
-                    return Err(SchemaError::Custom(
-                        "Default value for enum type must be a string".to_string(),
-                    ));
+                    return Err(SchemaError::Custom {
+                        message: "Default value for enum type must be a string".to_string(),
+                        range: None,
+                    });
                 }
             }
             AvroType::Array(_) => {
                 if !default.is_array() {
-                    return Err(SchemaError::Custom(
-                        "Default value for array type must be an array".to_string(),
-                    ));
+                    return Err(SchemaError::Custom {
+                        message: "Default value for array type must be an array".to_string(),
+                        range: None,
+                    });
                 }
             }
             AvroType::Map(_) => {
                 if !default.is_object() {
-                    return Err(SchemaError::Custom(
-                        "Default value for map type must be an object".to_string(),
-                    ));
+                    return Err(SchemaError::Custom {
+                        message: "Default value for map type must be an object".to_string(),
+                        range: None,
+                    });
                 }
             }
             AvroType::Fixed(_) => {
                 // Fixed default must be a string
                 if !default.is_string() {
-                    return Err(SchemaError::Custom(
-                        "Default value for fixed type must be a string".to_string(),
-                    ));
+                    return Err(SchemaError::Custom {
+                        message: "Default value for fixed type must be a string".to_string(),
+                        range: None,
+                    });
                 }
             }
             AvroType::Union(types) => {
@@ -534,9 +618,10 @@ impl AvroValidator {
                 if let Some(first_type) = types.first() {
                     self.validate_default_value(default, first_type, named_types)?;
                 } else {
-                    return Err(SchemaError::Custom(
-                        "Union must have at least one type".to_string(),
-                    ));
+                    return Err(SchemaError::Custom {
+                        message: "Union must have at least one type".to_string(),
+                        range: None,
+                    });
                 }
             }
             AvroType::TypeRef(type_ref) => {
@@ -564,6 +649,61 @@ impl AvroValidator {
             AvroType::Union(_) => "union".to_string(),
             AvroType::TypeRef(type_ref) => format!("ref:{}", type_ref.name),
         }
+    }
+}
+
+/// Fix an invalid name by making it valid according to Avro naming rules
+fn fix_invalid_name(name: &str) -> String {
+    if name.is_empty() {
+        return "field".to_string();
+    }
+
+    let mut result = String::new();
+
+    for (i, ch) in name.chars().enumerate() {
+        if i == 0 {
+            // First character must be [A-Za-z_]
+            if ch.is_ascii_alphabetic() || ch == '_' {
+                result.push(ch);
+            } else if ch.is_ascii_digit() {
+                // If starts with digit, prepend underscore
+                result.push('_');
+                result.push(ch);
+            } else {
+                // Replace invalid character with underscore
+                result.push('_');
+            }
+        } else {
+            // Subsequent characters must be [A-Za-z0-9_]
+            if ch.is_ascii_alphanumeric() || ch == '_' {
+                result.push(ch);
+            } else {
+                // Replace invalid character with underscore
+                result.push('_');
+            }
+        }
+    }
+
+    if result.is_empty() {
+        result = "field".to_string();
+    }
+
+    result
+}
+
+/// Fix an invalid namespace by removing invalid segments
+fn fix_invalid_namespace(namespace: &str) -> String {
+    let name_regex = Regex::new(r"^[A-Za-z_][A-Za-z0-9_]*$").unwrap();
+
+    let valid_parts: Vec<&str> = namespace
+        .split('.')
+        .filter(|part| name_regex.is_match(part))
+        .collect();
+
+    if valid_parts.is_empty() {
+        String::new()
+    } else {
+        valid_parts.join(".")
     }
 }
 

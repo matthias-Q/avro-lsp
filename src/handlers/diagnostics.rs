@@ -97,6 +97,10 @@ pub fn parse_and_validate_with_workspace(
         // Try to find the position of the error using AST
         let position_range = find_error_position_in_ast(&e, &schema);
 
+        // Serialize the SchemaError to JSON for the data field
+        // This allows code actions to access structured error data
+        let error_data = serde_json::to_value(&e).ok();
+
         diagnostics.push(Diagnostic {
             range: position_range,
             severity: Some(DiagnosticSeverity::ERROR),
@@ -106,7 +110,7 @@ pub fn parse_and_validate_with_workspace(
             message: format!("Validation error: {}", e),
             related_information: None,
             tags: None,
-            data: None,
+            data: error_data,
         });
     }
 
@@ -118,7 +122,11 @@ fn find_error_position_in_ast(error: &SchemaError, schema: &AvroSchema) -> Range
     // Helper to search for error location in AST
     fn search_type(avro_type: &AvroType, error: &SchemaError) -> Option<Range> {
         match error {
-            SchemaError::InvalidName(name) => {
+            SchemaError::InvalidName { name, range, .. } => {
+                // If error already has a range, use it
+                if range.is_some() {
+                    return *range;
+                }
                 tracing::debug!("Searching for InvalidName: {}", name);
                 // Search for a Record/Enum/Fixed with this name
                 match avro_type {
@@ -171,7 +179,13 @@ fn find_error_position_in_ast(error: &SchemaError, schema: &AvroSchema) -> Range
                     _ => None,
                 }
             }
-            SchemaError::InvalidNamespace(namespace) => {
+            SchemaError::InvalidNamespace {
+                namespace, range, ..
+            } => {
+                // If error already has a range, use it
+                if range.is_some() {
+                    return *range;
+                }
                 tracing::debug!("Searching for InvalidNamespace: {}", namespace);
                 // Search for a type with this namespace
                 match avro_type {
@@ -231,7 +245,15 @@ fn find_error_position_in_ast(error: &SchemaError, schema: &AvroSchema) -> Range
                     _ => None,
                 }
             }
-            SchemaError::DuplicateSymbol(symbol) => {
+            SchemaError::DuplicateSymbol {
+                symbol,
+                duplicate_occurrence,
+                ..
+            } => {
+                // If error already has a range for the duplicate, use it
+                if duplicate_occurrence.is_some() {
+                    return *duplicate_occurrence;
+                }
                 tracing::debug!("Searching for DuplicateSymbol: {}", symbol);
                 // Find the enum with this symbol
                 match avro_type {
@@ -266,7 +288,11 @@ fn find_error_position_in_ast(error: &SchemaError, schema: &AvroSchema) -> Range
                     _ => None,
                 }
             }
-            SchemaError::Custom(msg) => {
+            SchemaError::Custom { message: msg, range } => {
+                // If error already has a range, use it
+                if range.is_some() {
+                    return *range;
+                }
                 tracing::debug!("Searching for Custom error: {}", msg);
                 // Try to extract relevant info from custom messages
                 // Handle common patterns like field validation errors, decimal errors, etc.
@@ -350,7 +376,11 @@ fn find_error_position_in_ast(error: &SchemaError, schema: &AvroSchema) -> Range
                     _ => None,
                 }
             }
-            SchemaError::UnknownTypeReference(type_name) => {
+            SchemaError::UnknownTypeReference { type_name, range } => {
+                // If error already has a range, use it
+                if range.is_some() {
+                    return *range;
+                }
                 tracing::debug!("Searching for UnknownTypeReference: {}", type_name);
                 // Search for TypeRef with this name
                 match avro_type {
@@ -827,7 +857,7 @@ mod tests {
 
         // The error should be positioned at the enum (line 1-4), not at (0,0)
         assert!(
-            diag.range.start.line >= 0 && diag.range.start.line <= 4,
+            diag.range.start.line <= 4,
             "Error should be positioned at the enum definition, got line: {}",
             diag.range.start.line
         );

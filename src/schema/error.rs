@@ -1,13 +1,14 @@
 use async_lsp::lsp_types::Range;
+use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
-#[derive(Error, Debug)]
+#[derive(Error, Debug, Clone, Serialize, Deserialize)]
 pub enum SchemaError {
-    #[error("Invalid JSON: {0}")]
-    InvalidJson(#[from] serde_json::Error),
+    #[error("Invalid JSON: {message}")]
+    InvalidJson { message: String },
 
-    #[error("Missing required field: {0}")]
-    MissingField(String),
+    #[error("Missing required field: {field}")]
+    MissingField { field: String },
 
     #[error("Missing required field '{field}' in {context}")]
     MissingFieldWithContext {
@@ -17,31 +18,69 @@ pub enum SchemaError {
     },
 
     #[error("Invalid type: expected {expected}, found {found}")]
-    InvalidType { expected: String, found: String },
+    InvalidType {
+        expected: String,
+        found: String,
+        range: Option<Range>,
+    },
 
-    #[error("Invalid name '{0}': must match [A-Za-z_][A-Za-z0-9_]*")]
-    InvalidName(String),
+    #[error("Invalid name '{name}': must match [A-Za-z_][A-Za-z0-9_]*")]
+    InvalidName {
+        name: String,
+        range: Option<Range>,
+        suggested: Option<String>,
+    },
 
-    #[error("Invalid namespace '{0}': must be dot-separated names")]
-    InvalidNamespace(String),
+    #[error("Invalid namespace '{namespace}': must be dot-separated names")]
+    InvalidNamespace {
+        namespace: String,
+        range: Option<Range>,
+        suggested: Option<String>,
+    },
 
-    #[error("Unknown type reference: {0}")]
-    UnknownTypeReference(String),
+    #[error("Unknown type reference: {type_name}")]
+    UnknownTypeReference {
+        type_name: String,
+        range: Option<Range>,
+    },
 
-    #[error("Duplicate symbol '{0}' in enum")]
-    DuplicateSymbol(String),
+    #[error("Duplicate symbol '{symbol}' in enum")]
+    DuplicateSymbol {
+        symbol: String,
+        first_occurrence: Option<Range>,
+        duplicate_occurrence: Option<Range>,
+    },
 
-    #[error("Duplicate type in union: {0}")]
-    DuplicateUnionType(String),
+    #[error("Duplicate type in union: {type_signature}")]
+    DuplicateUnionType {
+        type_signature: String,
+        range: Option<Range>,
+    },
 
     #[error("Nested unions are not allowed")]
-    NestedUnion,
+    NestedUnion { range: Option<Range> },
 
-    #[error("Invalid primitive type: {0}")]
-    InvalidPrimitiveType(String),
+    #[error("Invalid primitive type: {type_name}")]
+    InvalidPrimitiveType {
+        type_name: String,
+        range: Option<Range>,
+        suggested: Option<String>,
+    },
 
-    #[error("{0}")]
-    Custom(String),
+    #[error("{message}")]
+    Custom {
+        message: String,
+        range: Option<Range>,
+    },
+}
+
+// Implement From<serde_json::Error> manually since we changed the variant
+impl From<serde_json::Error> for SchemaError {
+    fn from(err: serde_json::Error) -> Self {
+        SchemaError::InvalidJson {
+            message: err.to_string(),
+        }
+    }
 }
 
 pub type Result<T> = std::result::Result<T, SchemaError>;

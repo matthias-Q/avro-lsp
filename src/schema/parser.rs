@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use super::error::{Result, SchemaError};
-use super::json_parser::{JsonValue, parse_json};
+use super::json_parser::{parse_json, JsonValue};
 use super::types::*;
 
 pub struct AvroParser {
@@ -18,8 +18,10 @@ impl AvroParser {
     /// Parse JSON text into an Avro schema with position information
     pub fn parse(&mut self, json_text: &str) -> Result<AvroSchema> {
         // Parse JSON with position tracking
-        let json = parse_json(json_text)
-            .map_err(|e| SchemaError::Custom(format!("JSON parse error: {}", e)))?;
+        let json = parse_json(json_text).map_err(|e| SchemaError::Custom {
+            message: format!("JSON parse error: {}", e),
+            range: None,
+        })?;
 
         let root = self.parse_type(&json)?;
 
@@ -52,10 +54,11 @@ impl AvroParser {
 
             // Complex type as object
             JsonValue::Object(obj, _range) => {
-                let type_name = obj
-                    .get("type")
-                    .and_then(|v| v.as_string())
-                    .ok_or_else(|| SchemaError::MissingField("type".to_string()))?;
+                let type_name = obj.get("type").and_then(|v| v.as_string()).ok_or_else(|| {
+                    SchemaError::MissingField {
+                        field: "type".to_string(),
+                    }
+                })?;
 
                 match type_name {
                     "record" => self.parse_record(obj, value.range()),
@@ -74,13 +77,18 @@ impl AvroParser {
                             Ok(AvroType::Primitive(PrimitiveType::from_str(prim).unwrap()))
                         }
                     }
-                    _ => Err(SchemaError::InvalidPrimitiveType(type_name.to_string())),
+                    _ => Err(SchemaError::InvalidPrimitiveType {
+                        type_name: type_name.to_string(),
+                        range: obj.get("type").map(|v| v.range()),
+                        suggested: None,
+                    }),
                 }
             }
 
-            _ => Err(SchemaError::Custom(
-                "Schema must be a string, array, or object".to_string(),
-            )),
+            _ => Err(SchemaError::Custom {
+                message: "Schema must be a string, array, or object".to_string(),
+                range: None,
+            }),
         }
     }
 
@@ -97,15 +105,16 @@ impl AvroParser {
         // Get name range
         let name_range = obj.get("name").map(|v| v.range()).or(Some(record_range));
 
-        let fields_value = obj
-            .get("fields")
-            .ok_or_else(|| SchemaError::MissingField("fields".to_string()))?;
+        let fields_value = obj.get("fields").ok_or_else(|| SchemaError::MissingField {
+            field: "fields".to_string(),
+        })?;
 
         let fields_array = fields_value
             .as_array()
             .ok_or_else(|| SchemaError::InvalidType {
                 expected: "array".to_string(),
                 found: "other".to_string(),
+                range: Some(fields_value.range()),
             })?;
 
         let mut fields = Vec::new();
@@ -115,6 +124,7 @@ impl AvroParser {
                 .ok_or_else(|| SchemaError::InvalidType {
                     expected: "object".to_string(),
                     found: "other".to_string(),
+                    range: Some(field_value.range()),
                 })?;
 
             let field_name = self.get_required_string(field_obj, "name")?;
@@ -191,7 +201,9 @@ impl AvroParser {
         let symbols = obj
             .get("symbols")
             .and_then(|v| v.as_array())
-            .ok_or_else(|| SchemaError::MissingField("symbols".to_string()))?
+            .ok_or_else(|| SchemaError::MissingField {
+                field: "symbols".to_string(),
+            })?
             .iter()
             .map(|v| {
                 v.as_string()
@@ -199,6 +211,7 @@ impl AvroParser {
                     .ok_or_else(|| SchemaError::InvalidType {
                         expected: "string".to_string(),
                         found: "other".to_string(),
+                        range: Some(v.range()),
                     })
             })
             .collect::<Result<Vec<_>>>()?;
@@ -234,9 +247,9 @@ impl AvroParser {
     }
 
     fn parse_array(&mut self, obj: &HashMap<String, JsonValue>) -> Result<AvroType> {
-        let items_value = obj
-            .get("items")
-            .ok_or_else(|| SchemaError::MissingField("items".to_string()))?;
+        let items_value = obj.get("items").ok_or_else(|| SchemaError::MissingField {
+            field: "items".to_string(),
+        })?;
         let items = self.parse_type(items_value)?;
 
         Ok(AvroType::Array(ArraySchema {
@@ -251,9 +264,9 @@ impl AvroParser {
     }
 
     fn parse_map(&mut self, obj: &HashMap<String, JsonValue>) -> Result<AvroType> {
-        let values_value = obj
-            .get("values")
-            .ok_or_else(|| SchemaError::MissingField("values".to_string()))?;
+        let values_value = obj.get("values").ok_or_else(|| SchemaError::MissingField {
+            field: "values".to_string(),
+        })?;
         let values = self.parse_type(values_value)?;
 
         Ok(AvroType::Map(MapSchema {
@@ -286,7 +299,9 @@ impl AvroParser {
                 JsonValue::Number(n, _) => Some(*n as usize),
                 _ => None,
             })
-            .ok_or_else(|| SchemaError::MissingField("size".to_string()))?;
+            .ok_or_else(|| SchemaError::MissingField {
+                field: "size".to_string(),
+            })?;
 
         // Parse logical type and related attributes
         let logical_type = obj
@@ -340,8 +355,13 @@ impl AvroParser {
         let type_name = self.get_required_string(obj, "type")?;
 
         // Verify it's actually a primitive type
-        let primitive_type = PrimitiveType::from_str(&type_name)
-            .ok_or_else(|| SchemaError::InvalidPrimitiveType(type_name.clone()))?;
+        let primitive_type = PrimitiveType::from_str(&type_name).ok_or_else(|| {
+            SchemaError::InvalidPrimitiveType {
+                type_name: type_name.clone(),
+                range: obj.get("type").map(|v| v.range()),
+                suggested: None,
+            }
+        })?;
 
         // Parse logical type and attributes
         let logical_type = self.get_optional_string(obj, "logicalType");
@@ -368,7 +388,9 @@ impl AvroParser {
         obj.get(key)
             .and_then(|v| v.as_string())
             .map(String::from)
-            .ok_or_else(|| SchemaError::MissingField(key.to_string()))
+            .ok_or_else(|| SchemaError::MissingField {
+                field: key.to_string(),
+            })
     }
 
     fn get_optional_string(&self, obj: &HashMap<String, JsonValue>, key: &str) -> Option<String> {
