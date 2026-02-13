@@ -79,6 +79,7 @@ function getServerOptions(context: ExtensionContext): ServerOptions {
 
 function getBundledBinaryPath(context: ExtensionContext): string {
   const platform = os.platform();
+  const arch = os.arch();
   let binaryName: string;
 
   if (platform === 'win32') {
@@ -86,9 +87,17 @@ function getBundledBinaryPath(context: ExtensionContext): string {
   } else if (platform === 'linux') {
     binaryName = 'avro-lsp-linux-x64';
   } else if (platform === 'darwin') {
-    throw new Error(
-      'macOS binaries are not bundled. Please build from source and configure "avro-lsp.server.path" in settings.'
-    );
+    // macOS - detect architecture
+    if (arch === 'arm64') {
+      binaryName = 'avro-lsp-darwin-arm64';
+    } else if (arch === 'x64') {
+      binaryName = 'avro-lsp-darwin-x64';
+    } else {
+      throw new Error(
+        `Unsupported macOS architecture: ${arch}. Supported architectures are x64 (Intel) and arm64 (Apple Silicon). ` +
+        `Please build from source and configure "avro-lsp.server.path" in settings.`
+      );
+    }
   } else {
     throw new Error(`Unsupported platform: ${platform}`);
   }
