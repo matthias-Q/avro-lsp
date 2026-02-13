@@ -32,12 +32,15 @@ impl AvroParser {
     fn parse_type(&mut self, value: &JsonValue) -> Result<AvroType> {
         match value {
             // Primitive type as string: "int", "string", etc.
-            JsonValue::String(s, _range) => {
+            JsonValue::String(s, range) => {
                 if let Some(primitive) = PrimitiveType::from_str(s) {
                     Ok(AvroType::Primitive(primitive))
                 } else {
                     // Must be a type reference
-                    Ok(AvroType::TypeRef(s.clone()))
+                    Ok(AvroType::TypeRef(TypeRefSchema {
+                        name: s.clone(),
+                        range: Some(*range),
+                    }))
                 }
             }
 

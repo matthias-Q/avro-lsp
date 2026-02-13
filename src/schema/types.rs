@@ -21,7 +21,16 @@ pub enum AvroType {
     Union(Vec<AvroType>),
     Fixed(FixedSchema),
     /// Reference to a named type by string
-    TypeRef(String),
+    TypeRef(TypeRefSchema),
+}
+
+/// A reference to a named type
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct TypeRefSchema {
+    pub name: String,
+    #[serde(skip)]
+    pub range: Option<Range>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

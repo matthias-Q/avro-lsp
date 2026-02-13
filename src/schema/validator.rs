@@ -34,7 +34,9 @@ impl AvroValidator {
             AvroType::Map(map) => self.validate_type(&map.values, named_types),
             AvroType::Union(types) => self.validate_union(types, named_types),
             AvroType::Fixed(fixed) => self.validate_fixed(fixed),
-            AvroType::TypeRef(name) => self.validate_type_reference(name, named_types),
+            AvroType::TypeRef(type_ref) => {
+                self.validate_type_reference(&type_ref.name, named_types)
+            }
         }
     }
 
@@ -204,7 +206,7 @@ impl AvroValidator {
             AvroType::Array(_) => "array".to_string(),
             AvroType::Map(_) => "map".to_string(),
             AvroType::Union(_) => "union".to_string(),
-            AvroType::TypeRef(name) => format!("ref:{}", name),
+            AvroType::TypeRef(type_ref) => format!("ref:{}", type_ref.name),
         }
     }
 }

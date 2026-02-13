@@ -85,6 +85,7 @@ impl LanguageServer for AvroLanguageServer {
                     ),
                     document_formatting_provider: Some(OneOf::Left(true)),
                     code_action_provider: Some(CodeActionProviderCapability::Simple(true)),
+                    rename_provider: Some(OneOf::Left(true)),
                     ..Default::default()
                 },
                 server_info: Some(ServerInfo {
@@ -306,6 +307,23 @@ impl LanguageServer for AvroLanguageServer {
                 }
                 None => Ok(None),
             }
+        })
+    }
+
+    fn rename(
+        &mut self,
+        params: RenameParams,
+    ) -> BoxFuture<'static, Result<Option<WorkspaceEdit>, Self::Error>> {
+        let uri = params.text_document_position.text_document.uri;
+        let position = params.text_document_position.position;
+        let new_name = params.new_name;
+
+        tracing::debug!("Rename request for {} at {:?} to '{}'", uri, position, new_name);
+
+        let state = self.state.clone();
+
+        Box::pin(async move {
+            state.rename(&uri, position, &new_name).await
         })
     }
 }

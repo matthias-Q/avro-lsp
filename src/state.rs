@@ -2,6 +2,7 @@ use async_lsp::lsp_types::{
     CompletionItem, CompletionItemKind, Diagnostic, DiagnosticSeverity, DocumentSymbol, Hover,
     InsertTextFormat, Location, Position, Range, SemanticToken, SymbolKind, Url,
 };
+use async_lsp::ResponseError;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::RwLock;
@@ -518,8 +519,8 @@ impl ServerState {
             AvroType::Primitive(prim) => {
                 format!("**Primitive**: `{:?}`", prim)
             }
-            AvroType::TypeRef(name) => {
-                format!("**Type Reference**: `{}`", name)
+            AvroType::TypeRef(type_ref) => {
+                format!("**Type Reference**: `{}`", type_ref.name)
             }
         }
     }
@@ -537,7 +538,7 @@ impl ServerState {
                 let names: Vec<String> = types.iter().map(|t| self.format_type_name(t)).collect();
                 format!("[{}]", names.join(", "))
             }
-            AvroType::TypeRef(name) => format!("`{}`", name),
+            AvroType::TypeRef(type_ref) => format!("`{}`", type_ref.name),
         }
     }
 
@@ -1134,6 +1135,194 @@ impl ServerState {
         } else {
             None
         }
+    }
+
+    // ========================================================================
+    // Rename Implementation
+    // ========================================================================
+
+    /// Helper to check if position is inside a range
+    fn position_in_range(pos: Position, range: &Range) -> bool {
+        if pos.line < range.start.line || pos.line > range.end.line {
+            return false;
+        }
+        if pos.line == range.start.line && pos.character < range.start.character {
+            return false;
+        }
+        if pos.line == range.end.line && pos.character > range.end.character {
+            return false;
+        }
+        true
+    }
+
+    /// Rename a symbol (record, enum, fixed, or field name)
+    pub async fn rename(
+        &self,
+        uri: &Url,
+        position: Position,
+        new_name: &str,
+    ) -> Result<Option<async_lsp::lsp_types::WorkspaceEdit>, ResponseError> {
+        use async_lsp::lsp_types::{TextEdit, WorkspaceEdit};
+        use std::collections::HashMap;
+
+        let state = self.inner.read().await;
+        let doc = state.documents.get(uri);
+        
+        let doc = match doc {
+            Some(d) => d,
+            None => return Ok(None),
+        };
+
+        let schema = match &doc.schema {
+            Some(s) => s,
+            None => return Ok(None),
+        };
+
+        // Find what symbol we're renaming
+        let node = match find_node_at_position(schema, position) {
+            Some(n) => n,
+            None => return Ok(None),
+        };
+
+        // Collect all edits needed for the rename
+        let mut edits = Vec::new();
+
+        match node {
+            AstNode::RecordDefinition(record) => {
+                // Check if cursor is on the name specifically
+                if let Some(name_range) = &record.name_range {
+                    if Self::position_in_range(position, name_range) {
+                        // Rename the record: update declaration and all references
+                        let old_name = &record.name;
+                        self.collect_type_rename_edits(schema, old_name, new_name, &mut edits);
+                    }
+                }
+            }
+            AstNode::EnumDefinition(enum_schema) => {
+                // Check if cursor is on the name specifically
+                if let Some(name_range) = &enum_schema.name_range {
+                    if Self::position_in_range(position, name_range) {
+                        // Rename the enum: update declaration and all references
+                        let old_name = &enum_schema.name;
+                        self.collect_type_rename_edits(schema, old_name, new_name, &mut edits);
+                    }
+                }
+            }
+            AstNode::Field(field) => {
+                // Check if cursor is on the field name specifically
+                if let Some(name_range) = &field.name_range {
+                    if Self::position_in_range(position, name_range) {
+                        // Rename the field: only update this field's name
+                        edits.push(TextEdit {
+                            range: *name_range,
+                            new_text: format!("\"{}\"", new_name),
+                        });
+                    }
+                }
+            }
+            AstNode::FieldType(_) => {
+                // Can't rename a type reference from the usage site
+                return Ok(None);
+            }
+        }
+
+        if edits.is_empty() {
+            return Ok(None);
+        }
+
+        let mut changes = HashMap::new();
+        changes.insert(uri.clone(), edits);
+
+        Ok(Some(WorkspaceEdit {
+            changes: Some(changes),
+            document_changes: None,
+            change_annotations: None,
+        }))
+    }
+
+    /// Collect all edits needed to rename a type (record/enum/fixed)
+    fn collect_type_rename_edits(
+        &self,
+        schema: &AvroSchema,
+        old_name: &str,
+        new_name: &str,
+        edits: &mut Vec<async_lsp::lsp_types::TextEdit>,
+    ) {
+        use async_lsp::lsp_types::TextEdit;
+
+        // Helper to find references in an AvroType
+        fn find_references_in_type(
+            avro_type: &AvroType,
+            old_name: &str,
+            new_name: &str,
+            edits: &mut Vec<TextEdit>,
+        ) {
+            match avro_type {
+                AvroType::Record(record) => {
+                    // Update the record's name declaration
+                    if record.name == old_name {
+                        if let Some(name_range) = &record.name_range {
+                            edits.push(TextEdit {
+                                range: *name_range,
+                                new_text: format!("\"{}\"", new_name),
+                            });
+                        }
+                    }
+                    // Check all fields for type references
+                    for field in &record.fields {
+                        find_references_in_type(&field.field_type, old_name, new_name, edits);
+                    }
+                }
+                AvroType::Enum(enum_schema) => {
+                    // Update the enum's name declaration
+                    if enum_schema.name == old_name {
+                        if let Some(name_range) = &enum_schema.name_range {
+                            edits.push(TextEdit {
+                                range: *name_range,
+                                new_text: format!("\"{}\"", new_name),
+                            });
+                        }
+                    }
+                }
+                AvroType::Fixed(fixed) => {
+                    // Update the fixed type's name declaration
+                    if fixed.name == old_name {
+                        if let Some(name_range) = &fixed.name_range {
+                            edits.push(TextEdit {
+                                range: *name_range,
+                                new_text: format!("\"{}\"", new_name),
+                            });
+                        }
+                    }
+                }
+                AvroType::TypeRef(type_ref) => {
+                    // This is a reference to a named type - rename it if it matches
+                    if type_ref.name == old_name {
+                        if let Some(range) = &type_ref.range {
+                            edits.push(TextEdit {
+                                range: *range,
+                                new_text: format!("\"{}\"", new_name),
+                            });
+                        }
+                    }
+                }
+                AvroType::Array(array) => {
+                    find_references_in_type(&array.items, old_name, new_name, edits);
+                }
+                AvroType::Map(map) => {
+                    find_references_in_type(&map.values, old_name, new_name, edits);
+                }
+                AvroType::Union(types) => {
+                    for t in types {
+                        find_references_in_type(t, old_name, new_name, edits);
+                    }
+                }
+                AvroType::Primitive(_) => {}
+            }
+        }
+
+        // Search the entire schema for references
+        find_references_in_type(&schema.root, old_name, new_name, edits);
     }
 
     /// Analyze the context at the cursor position to determine what kind of completion to provide
@@ -1854,7 +2043,7 @@ impl SemanticTokensBuilder {
             }
             AvroType::TypeRef(type_ref) => {
                 // Reference to a named type
-                let pattern = format!("\"type\": \"{}\"", type_ref);
+                let pattern = format!("\"type\": \"{}\"", type_ref.name);
                 if let Some(offset) = self.text.find(&pattern) {
                     let value_offset = offset + "\"type\": \"".len();
                     if tokenized_offsets.insert(value_offset) {
@@ -1862,7 +2051,7 @@ impl SemanticTokensBuilder {
                         self.add_token(
                             pos.line,
                             pos.character,
-                            type_ref.len() as u32,
+                            type_ref.name.len() as u32,
                             TOKEN_TYPE_TYPE,
                             0,
                         );
