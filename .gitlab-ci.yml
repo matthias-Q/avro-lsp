@@ -1,0 +1,204 @@
+image: "rust:latest"
+
+variables:
+  CARGO_HOME: $CI_PROJECT_DIR/cargo
+
+workflow:
+  rules:
+    - if: '$CI_COMMIT_TAG =~ /^v?\d+\.\d+\.\d+$/'
+      when: always
+    - if: "$CI_COMMIT_BRANCH"
+    - if: '$CI_PIPELINE_SOURCE == "schedule"'
+
+.build:
+  cache:
+    - key: $CI_COMMIT_REF_SLUG
+      paths: [ target/ ]
+    - key: cargo
+      paths: [ cargo/ ]
+  variables:
+    CARGO_HOME: $CI_PROJECT_DIR/cargo
+    CACHE_FALLBACK_KEY: $CI_DEFAULT_BRANCH
+
+default:
+  before_script:
+    - rustc --version
+    - cargo --version
+  cache:
+    - key: $CI_COMMIT_REF_SLUG
+      paths: [ target/ ]
+    - key: cargo
+      paths: [ cargo/ ]
+
+stages:
+  - test
+  - build
+  - package
+  - release
+
+lint-code:
+  stage: test
+  script:
+    - rustup component add clippy
+    - cargo clippy -- -D warnings
+  tags:
+    - CPU-and-Memory-Intensive
+  allow_failure: true
+
+format-code:
+  stage: test
+  script:
+    - rustup component add rustfmt
+    - cargo fmt -- --check
+
+test-code:
+  stage: test
+  script:
+    - cargo test
+  tags:
+    - CPU-and-Memory-Intensive
+
+build-linux:
+  stage: build
+  extends: .build
+  image: rust:latest
+  tags:
+    - CPU-and-Memory-Intensive
+  rules:
+    - if: '$CI_COMMIT_TAG =~ /^v?\d+\.\d+\.\d+$/'
+    - when: manual
+  script:
+    - cargo build --color always --release --target x86_64-unknown-linux-gnu
+    - mkdir -p artifacts
+    - cp target/x86_64-unknown-linux-gnu/release/avro-lsp artifacts/avro-lsp-linux-x64
+    - echo "PACKAGE_REGISTRY_URL=${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic/avro-lsp/${CI_COMMIT_TAG}/avro-lsp-linux-x64" >> build.env
+  artifacts:
+    name: "avro-lsp-${CI_COMMIT_REF_NAME}-linux-x64"
+    expire_in: never
+    paths:
+      - artifacts/avro-lsp-linux-x64
+    reports:
+      dotenv: build.env
+
+build-windows:
+  stage: build
+  extends: .build
+  image: rust:latest
+  tags:
+    - CPU-and-Memory-Intensive
+  rules:
+    - if: '$CI_COMMIT_TAG =~ /^v?\d+\.\d+\.\d+$/'
+    - when: manual
+  before_script:
+    - apt-get update && apt-get install -y mingw-w64
+    - rustup target add x86_64-pc-windows-gnu
+  script:
+    - cargo build --color always --release --target x86_64-pc-windows-gnu
+    - mkdir -p artifacts
+    - cp target/x86_64-pc-windows-gnu/release/avro-lsp.exe artifacts/avro-lsp-win32-x64.exe
+    - echo "WINDOWS_PACKAGE_URL=${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic/avro-lsp/${CI_COMMIT_TAG}/avro-lsp-win32-x64.exe" >> build-windows.env
+  artifacts:
+    name: "avro-lsp-${CI_COMMIT_REF_NAME}-win32-x64"
+    expire_in: never
+    paths:
+      - artifacts/avro-lsp-win32-x64.exe
+    reports:
+      dotenv: build-windows.env
+
+build-extension:
+  stage: package
+  image: node:22
+  needs:
+    - build-linux
+    - build-windows
+  rules:
+    - if: '$CI_COMMIT_TAG =~ /^v?\d+\.\d+\.\d+$/'
+    - when: manual
+  before_script: []
+  cache: []
+  script:
+    - cd vscode-avro-lsp
+    - mkdir -p bin
+    - cp ../artifacts/avro-lsp-linux-x64 bin/
+    - cp ../artifacts/avro-lsp-win32-x64.exe bin/
+    - chmod +x bin/avro-lsp-linux-x64
+    - npm install
+    - npm run compile
+    - npx vsce package --no-git-tag-version
+    - mv *.vsix ../artifacts/
+    - echo "VSIX_PACKAGE_URL=${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic/avro-lsp/${CI_COMMIT_TAG}/avro-lsp-${CI_COMMIT_TAG#v}.vsix" >> ../build-extension.env
+  artifacts:
+    name: "avro-lsp-${CI_COMMIT_REF_NAME}-extension"
+    expire_in: never
+    paths:
+      - artifacts/*.vsix
+    reports:
+      dotenv: build-extension.env
+
+release:
+  stage: release
+  image: registry.gitlab.com/gitlab-org/release-cli:latest
+  before_script: []
+  cache: []
+  needs:
+    - job: build-linux
+      artifacts: true
+    - job: build-windows
+      artifacts: true
+    - job: build-extension
+      artifacts: true
+  rules:
+    - if: '$CI_COMMIT_TAG =~ /^v?\d+\.\d+\.\d+$/'
+  script:
+    - apk add --no-cache curl
+    - |
+      # Extract changelog section for this version
+      VERSION_NUMBER="${CI_COMMIT_TAG#v}"
+      echo "Extracting changelog for version: $VERSION_NUMBER"
+      
+      # Extract the section between this version and the next version header (or end of file)
+      awk -v ver="$VERSION_NUMBER" '
+        /^## \[/ {
+          if (found) exit
+          if ($0 ~ "\\[" ver "\\]") {
+            found=1
+            print $0
+            next
+          }
+        }
+        found { print }
+      ' CHANGELOG.md > release_notes.md
+      
+      # Show what we extracted for debugging
+      echo "=== Extracted changelog ==="
+      cat release_notes.md
+      echo "==========================="
+    - |
+      # Upload Linux binary
+      curl --header "JOB-TOKEN: ${CI_JOB_TOKEN}" --upload-file artifacts/avro-lsp-linux-x64 \
+        "${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic/avro-lsp/${CI_COMMIT_TAG}/avro-lsp-linux-x64"
+      
+      # Upload Windows binary
+      curl --header "JOB-TOKEN: ${CI_JOB_TOKEN}" --upload-file artifacts/avro-lsp-win32-x64.exe \
+        "${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic/avro-lsp/${CI_COMMIT_TAG}/avro-lsp-win32-x64.exe"
+      
+      # Upload VS Code extension
+      VSIX_FILE=$(ls artifacts/*.vsix)
+      VSIX_NAME=$(basename "$VSIX_FILE")
+      curl --header "JOB-TOKEN: ${CI_JOB_TOKEN}" --upload-file "$VSIX_FILE" \
+        "${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic/avro-lsp/${CI_COMMIT_TAG}/${VSIX_NAME}"
+  release:
+    tag_name: '$CI_COMMIT_TAG'
+    name: 'Release $CI_COMMIT_TAG'
+    description: './release_notes.md'
+    assets:
+      links:
+        - name: 'avro-lsp-linux-x64'
+          url: '${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic/avro-lsp/${CI_COMMIT_TAG}/avro-lsp-linux-x64'
+          link_type: 'package'
+        - name: 'avro-lsp-win32-x64.exe'
+          url: '${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic/avro-lsp/${CI_COMMIT_TAG}/avro-lsp-win32-x64.exe'
+          link_type: 'package'
+        - name: 'VS Code Extension (.vsix)'
+          url: '${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic/avro-lsp/${CI_COMMIT_TAG}/avro-lsp-${CI_COMMIT_TAG#v}.vsix'
+          link_type: 'package'

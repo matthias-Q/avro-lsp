@@ -11,8 +11,8 @@ const TOKEN_TYPE_ENUM: u32 = 2;
 const TOKEN_TYPE_STRUCT: u32 = 3;
 const TOKEN_TYPE_PROPERTY: u32 = 4;
 const TOKEN_TYPE_ENUM_MEMBER: u32 = 5;
-const TOKEN_TYPE_STRING: u32 = 6;
-const TOKEN_TYPE_NUMBER: u32 = 7;
+// const TOKEN_TYPE_STRING: u32 = 6;  // Unused - primitives use TOKEN_TYPE_TYPE
+// const TOKEN_TYPE_NUMBER: u32 = 7;  // Unused - primitives use TOKEN_TYPE_TYPE
 
 /// Token modifiers (bit flags)
 const TOKEN_MODIFIER_DECLARATION: u32 = 0x01;
@@ -338,16 +338,12 @@ impl SemanticTokensBuilder {
                             && tokenized_offsets.insert(absolute_offset)
                         {
                             let pos = self.offset_to_position(absolute_offset);
-                            let token_type = match type_str {
-                                "string" => TOKEN_TYPE_STRING,
-                                "int" | "long" | "float" | "double" => TOKEN_TYPE_NUMBER,
-                                _ => TOKEN_TYPE_KEYWORD,
-                            };
+                            // All primitive types use TOKEN_TYPE_TYPE for consistency
                             self.add_token(
                                 pos.line,
                                 pos.character,
                                 type_str.len() as u32,
-                                token_type,
+                                TOKEN_TYPE_TYPE,
                                 TOKEN_MODIFIER_READONLY,
                             );
                         }

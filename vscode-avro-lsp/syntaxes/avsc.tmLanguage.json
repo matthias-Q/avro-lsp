@@ -1,0 +1,13 @@
+{
+  "scopeName": "source.avsc",
+  "name": "Avro Schema",
+  "fileTypes": [
+    "avsc"
+  ],
+  "patterns": [
+    {
+      "include": "source.json"
+    }
+  ],
+  "comment": "Avro schemas are JSON files. Syntax highlighting is provided by the LSP server via semantic tokens."
+}

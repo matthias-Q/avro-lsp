@@ -1,0 +1,92 @@
+{
+  "name": "avro-lsp",
+  "displayName": "Avro Language Server",
+  "description": "Language Server Protocol support for Apache Avro schema files (.avsc)",
+  "version": "0.1.0",
+  "publisher": "your-publisher",
+  "license": "MIT",
+  "engines": {
+    "vscode": "^1.80.0"
+  },
+  "categories": [
+    "Programming Languages",
+    "Linters",
+    "Formatters"
+  ],
+  "keywords": [
+    "avro",
+    "avsc",
+    "schema",
+    "lsp",
+    "language-server"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://gitlab.com/your-username/avro-lsp"
+  },
+  "bugs": {
+    "url": "https://gitlab.com/your-username/avro-lsp/-/issues"
+  },
+  "activationEvents": [
+    "onLanguage:avsc"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "languages": [
+      {
+        "id": "avsc",
+        "aliases": [
+          "Avro Schema",
+          "avsc"
+        ],
+        "extensions": [
+          ".avsc"
+        ],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "avsc",
+        "scopeName": "source.avsc",
+        "path": "./syntaxes/avsc.tmLanguage.json"
+      }
+    ],
+    "configuration": {
+      "type": "object",
+      "title": "Avro LSP",
+      "properties": {
+        "avro-lsp.server.path": {
+          "type": "string",
+          "default": "",
+          "description": "Path to avro-lsp executable (leave empty to use bundled binary)"
+        },
+        "avro-lsp.trace.server": {
+          "type": "string",
+          "enum": [
+            "off",
+            "messages",
+            "verbose"
+          ],
+          "default": "off",
+          "description": "Traces the communication between VS Code and the avro-lsp server"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "package": "vsce package"
+  },
+  "dependencies": {
+    "vscode-languageclient": "^9.0.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "@types/vscode": "^1.80.0",
+    "@vscode/vsce": "^3.0.0",
+    "typescript": "^5.7.0"
+  }
+}
