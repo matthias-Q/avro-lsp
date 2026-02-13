@@ -49,7 +49,7 @@ pub enum PrimitiveType {
 }
 
 impl PrimitiveType {
-    pub fn from_str(s: &str) -> Option<Self> {
+    pub fn parse(s: &str) -> Option<Self> {
         match s {
             "null" => Some(PrimitiveType::Null),
             "boolean" => Some(PrimitiveType::Boolean),

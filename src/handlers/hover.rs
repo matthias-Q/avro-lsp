@@ -55,7 +55,7 @@ pub fn get_word_at_position(text: &str, position: Position) -> Option<String> {
 /// Generate hover information for a word in the schema
 pub fn generate_hover(schema: &AvroSchema, text: &str, word: &str) -> Option<Hover> {
     // Check if it's a primitive type
-    if let Some(prim) = PrimitiveType::from_str(word) {
+    if let Some(prim) = PrimitiveType::parse(word) {
         let doc = get_primitive_documentation(&prim);
         return Some(Hover {
             contents: HoverContents::Markup(MarkupContent {

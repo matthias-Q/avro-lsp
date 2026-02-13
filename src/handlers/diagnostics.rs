@@ -55,6 +55,45 @@ pub fn parse_and_validate_with_workspace(
                     let msg = improve_error_message(&error_msg, &pos, was_adjusted);
                     (range, msg)
                 }
+                SchemaError::InvalidPrimitiveType {
+                    type_name,
+                    range: Some(r),
+                    suggested,
+                } => {
+                    tracing::debug!("Using position from InvalidPrimitiveType: {:?}", r);
+                    let msg = if let Some(suggestion) = suggested {
+                        format!(
+                            "Invalid primitive type '{}'. Did you mean '{}'?",
+                            type_name, suggestion
+                        )
+                    } else {
+                        format!("Invalid primitive type '{}'", type_name)
+                    };
+                    (*r, msg)
+                }
+                SchemaError::InvalidPrimitiveType {
+                    type_name,
+                    range: None,
+                    suggested,
+                } => {
+                    let (pos, _) = extract_error_position_with_context(&error_msg, text);
+                    let range = Range {
+                        start: pos,
+                        end: Position {
+                            line: pos.line,
+                            character: pos.character + 1,
+                        },
+                    };
+                    let msg = if let Some(suggestion) = suggested {
+                        format!(
+                            "Invalid primitive type '{}'. Did you mean '{}'?",
+                            type_name, suggestion
+                        )
+                    } else {
+                        format!("Invalid primitive type '{}'", type_name)
+                    };
+                    (range, msg)
+                }
                 _ => {
                     let (pos, was_adjusted) = extract_error_position_with_context(&error_msg, text);
                     let range = Range {
@@ -70,6 +109,10 @@ pub fn parse_and_validate_with_workspace(
             };
 
             tracing::debug!("Extracted position range: {:?}", position_range);
+
+            // Serialize the SchemaError to JSON for the data field (for code actions)
+            let error_data = serde_json::to_value(&e).ok();
+
             diagnostics.push(Diagnostic {
                 range: position_range,
                 severity: Some(DiagnosticSeverity::ERROR),
@@ -79,7 +122,7 @@ pub fn parse_and_validate_with_workspace(
                 message: adjusted_msg,
                 related_information: None,
                 tags: None,
-                data: None,
+                data: error_data,
             });
             return diagnostics;
         }
@@ -288,7 +331,10 @@ fn find_error_position_in_ast(error: &SchemaError, schema: &AvroSchema) -> Range
                     _ => None,
                 }
             }
-            SchemaError::Custom { message: msg, range } => {
+            SchemaError::Custom {
+                message: msg,
+                range,
+            } => {
                 // If error already has a range, use it
                 if range.is_some() {
                     return *range;
@@ -407,6 +453,191 @@ fn find_error_position_in_ast(error: &SchemaError, schema: &AvroSchema) -> Range
                         None
                     }
                     _ => None,
+                }
+            }
+            SchemaError::NestedUnion { range } => {
+                // If error already has a range, use it
+                if range.is_some() {
+                    return *range;
+                }
+                tracing::debug!("Searching for NestedUnion");
+                // Search for a union containing another union
+                match avro_type {
+                    AvroType::Union(types) => {
+                        // Check if any element is a union (nested union detected)
+                        for t in types {
+                            if matches!(t, AvroType::Union(_)) {
+                                // Found nested union, but Union doesn't store its own range
+                                // Return None to let parent context (field/array/map) provide range
+                                return None;
+                            }
+                        }
+                        // Recurse into types
+                        for t in types {
+                            if let Some(range) = search_type(t, error) {
+                                return Some(range);
+                            }
+                        }
+                        None
+                    }
+                    AvroType::Record(record) => {
+                        // Check fields for unions with nested unions
+                        for field in &record.fields {
+                            if let AvroType::Union(types) = &*field.field_type {
+                                // Check if this union contains another union
+                                if types.iter().any(|t| matches!(t, AvroType::Union(_))) {
+                                    // Found it - return field range as proxy for union range
+                                    tracing::debug!(
+                                        "Found nested union in field, returning field range: {:?}",
+                                        field.range
+                                    );
+                                    return field.range;
+                                }
+                            }
+                            // Recurse into field type
+                            if let Some(range) = search_type(&field.field_type, error) {
+                                // If recursion found a nested union but couldn't get range,
+                                // use this field's range as proxy
+                                return field.range.or(Some(range));
+                            }
+                        }
+                        None
+                    }
+                    AvroType::Array(array) => {
+                        // Check if array items is a union with nested unions
+                        if let AvroType::Union(types) = &*array.items
+                            && types.iter().any(|t| matches!(t, AvroType::Union(_)))
+                        {
+                            // Array items is a nested union, but we don't have array range
+                            // Return None to let parent provide context
+                            return None;
+                        }
+                        search_type(&array.items, error)
+                    }
+                    AvroType::Map(map) => {
+                        // Check if map values is a union with nested unions
+                        if let AvroType::Union(types) = &*map.values
+                            && types.iter().any(|t| matches!(t, AvroType::Union(_)))
+                        {
+                            // Map values is a nested union, but we don't have map range
+                            // Return None to let parent provide context
+                            return None;
+                        }
+                        search_type(&map.values, error)
+                    }
+                    _ => None,
+                }
+            }
+            SchemaError::DuplicateUnionType {
+                range,
+                type_signature,
+            } => {
+                // If error already has a range, use it
+                if range.is_some() {
+                    return *range;
+                }
+                tracing::debug!("Searching for DuplicateUnionType: {}", type_signature);
+
+                // Helper to check if a union has duplicate type signatures
+                let has_duplicates = |types: &[AvroType]| -> bool {
+                    use std::collections::HashSet;
+                    let mut signatures = HashSet::new();
+                    for t in types {
+                        let sig = match t {
+                            AvroType::Primitive(p) => format!("{:?}", p),
+                            AvroType::PrimitiveObject(p) => format!("{:?}", p.primitive_type),
+                            AvroType::Record(r) => format!("record:{}", r.name),
+                            AvroType::Enum(e) => format!("enum:{}", e.name),
+                            AvroType::Fixed(f) => format!("fixed:{}", f.name),
+                            AvroType::Array(_) => "array".to_string(),
+                            AvroType::Map(_) => "map".to_string(),
+                            AvroType::Union(_) => "union".to_string(),
+                            AvroType::TypeRef(type_ref) => format!("ref:{}", type_ref.name),
+                        };
+                        if !signatures.insert(sig) {
+                            return true; // Found duplicate
+                        }
+                    }
+                    false
+                };
+
+                // Return the range of the union that has duplicates
+                match avro_type {
+                    AvroType::Union(types) => {
+                        // Check if this union has duplicates
+                        if has_duplicates(types) {
+                            // Found it, but Union doesn't store its own range
+                            // Return None to let parent context provide range
+                            return None;
+                        }
+                        // Recurse into types
+                        for t in types {
+                            if let Some(range) = search_type(t, error) {
+                                return Some(range);
+                            }
+                        }
+                        None
+                    }
+                    AvroType::Record(record) => {
+                        // Check fields for unions with duplicates
+                        for field in &record.fields {
+                            if let AvroType::Union(types) = &*field.field_type
+                                && has_duplicates(types)
+                            {
+                                // Found it - return field range as proxy for union range
+                                tracing::debug!(
+                                    "Found duplicate union type in field, returning field range: {:?}",
+                                    field.range
+                                );
+                                return field.range;
+                            }
+                            // Recurse into field type
+                            if let Some(range) = search_type(&field.field_type, error) {
+                                // If recursion found a duplicate union but couldn't get range,
+                                // use this field's range as proxy
+                                return field.range.or(Some(range));
+                            }
+                        }
+                        None
+                    }
+                    AvroType::Array(array) => {
+                        // Check if array items is a union with duplicates
+                        if let AvroType::Union(types) = &*array.items
+                            && has_duplicates(types)
+                        {
+                            // Array items has duplicate union, but we don't have array range
+                            // Return None to let parent provide context
+                            return None;
+                        }
+                        search_type(&array.items, error)
+                    }
+                    AvroType::Map(map) => {
+                        // Check if map values is a union with duplicates
+                        if let AvroType::Union(types) = &*map.values
+                            && has_duplicates(types)
+                        {
+                            // Map values has duplicate union, but we don't have map range
+                            // Return None to let parent provide context
+                            return None;
+                        }
+                        search_type(&map.values, error)
+                    }
+                    _ => None,
+                }
+            }
+            SchemaError::MissingField { field } => {
+                tracing::debug!("Searching for MissingField: {}", field);
+                // For missing "fields" in a record
+                if field == "fields" {
+                    match avro_type {
+                        AvroType::Record(record) => {
+                            tracing::debug!("Found record missing fields at {:?}", record.range);
+                            record.range
+                        }
+                        _ => None,
+                    }
+                } else {
+                    None
                 }
             }
             _ => {
@@ -905,5 +1136,110 @@ mod tests {
                 description, diag.range
             );
         }
+    }
+
+    #[test]
+    fn test_nested_union_diagnostic_range() {
+        // Test that nested union errors have proper ranges (not 0,0)
+        let text = r#"{
+  "type": "record",
+  "name": "Test",
+  "fields": [
+    {
+      "name": "nested_union_field",
+      "type": [["null", "string"]]
+    }
+  ]
+}"#;
+
+        let diagnostics = parse_and_validate(text);
+
+        assert!(
+            !diagnostics.is_empty(),
+            "Should have diagnostic for nested union"
+        );
+
+        let nested_union_diag = diagnostics
+            .iter()
+            .find(|d| d.message.contains("Nested union"));
+
+        assert!(
+            nested_union_diag.is_some(),
+            "Should have nested union error, diagnostics: {:?}",
+            diagnostics.iter().map(|d| &d.message).collect::<Vec<_>>()
+        );
+
+        let diag = nested_union_diag.unwrap();
+
+        // The diagnostic should NOT be at the default (0,0) position
+        let is_not_default = diag.range.start.line > 0
+            || diag.range.start.character > 0
+            || diag.range.end.character > 1;
+
+        assert!(
+            is_not_default,
+            "Nested union diagnostic should not be at default position (0,0)-(0,1), got: {:?}. \
+             This means the quick fix won't be offered in the editor!",
+            diag.range
+        );
+
+        // Ideally should be around line 6 (the field with the nested union)
+        assert!(
+            diag.range.start.line >= 4 && diag.range.start.line <= 7,
+            "Expected nested union error around line 5-6, got line {}",
+            diag.range.start.line
+        );
+    }
+
+    #[test]
+    fn test_duplicate_union_type_diagnostic_range() {
+        // Test that duplicate union type errors have proper ranges (not 0,0)
+        let text = r#"{
+  "type": "record",
+  "name": "Test",
+  "fields": [
+    {
+      "name": "duplicate_field",
+      "type": ["null", "string", "null"]
+    }
+  ]
+}"#;
+
+        let diagnostics = parse_and_validate(text);
+
+        assert!(
+            !diagnostics.is_empty(),
+            "Should have diagnostic for duplicate union types"
+        );
+
+        let duplicate_diag = diagnostics
+            .iter()
+            .find(|d| d.message.contains("Duplicate type") || d.message.contains("duplicate"));
+
+        assert!(
+            duplicate_diag.is_some(),
+            "Should have duplicate union type error"
+        );
+
+        let diag = duplicate_diag.unwrap();
+
+        // The diagnostic should NOT be at the default (0,0) position
+        let is_not_default = diag.range.start.line > 0
+            || diag.range.start.character > 0
+            || diag.range.end.character > 1;
+
+        assert!(
+            is_not_default,
+            "Duplicate union type diagnostic should not be at default position (0,0)-(0,1), got: {:?}. \
+             This means the quick fix won't be offered in the editor!",
+            diag.range
+        );
+
+        // Ideally should be around line 6 (the field with the duplicate union)
+        assert!(
+            diag.range.start.line >= 4 && diag.range.start.line <= 7,
+            "Expected duplicate union type error around line 5-6, got line {}",
+            diag.range.start.line
+        );
     }
 }

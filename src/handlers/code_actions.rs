@@ -548,7 +548,7 @@ fn get_default_for_type(avro_type: &AvroType) -> Option<String> {
 
 /// Get quick fix code actions from diagnostics
 pub fn get_quick_fixes_from_diagnostics(
-    schema: &AvroSchema,
+    schema: Option<&AvroSchema>,
     text: &str,
     uri: &Url,
     diagnostics: &[Diagnostic],
@@ -573,17 +573,39 @@ pub fn get_quick_fixes_from_diagnostics(
         if let Some(error) = structured_error {
             // Use structured error data - no string parsing needed!
             tracing::debug!("Found structured error data: {:?}", error);
-            
+
             match error {
-                SchemaError::InvalidName { name, suggested, .. } => {
+                SchemaError::InvalidName {
+                    name, suggested, ..
+                } => {
                     tracing::debug!("Invalid name error: {} -> {:?}", name, suggested);
-                    if let Some(fix) = create_fix_invalid_name_structured(uri, schema, diagnostic, &name, suggested.as_deref()) {
+                    if let Some(schema) = schema
+                        && let Some(fix) = create_fix_invalid_name_structured(
+                            uri,
+                            schema,
+                            diagnostic,
+                            &name,
+                            suggested.as_deref(),
+                        )
+                    {
                         actions.push(fix);
                     }
                 }
-                SchemaError::InvalidNamespace { namespace, suggested, .. } => {
+                SchemaError::InvalidNamespace {
+                    namespace,
+                    suggested,
+                    ..
+                } => {
                     tracing::debug!("Invalid namespace error: {} -> {:?}", namespace, suggested);
-                    if let Some(fix) = create_fix_invalid_namespace_structured(uri, schema, diagnostic, &namespace, suggested.as_deref()) {
+                    if let Some(schema) = schema
+                        && let Some(fix) = create_fix_invalid_namespace_structured(
+                            uri,
+                            schema,
+                            diagnostic,
+                            &namespace,
+                            suggested.as_deref(),
+                        )
+                    {
                         actions.push(fix);
                     }
                 }
@@ -593,11 +615,108 @@ pub fn get_quick_fixes_from_diagnostics(
                         actions.push(fix);
                     }
                 }
-                SchemaError::Custom { message, .. } if message.contains("logical type") && message.contains("requires") => {
-                    tracing::debug!("Logical type error");
-                    if let Some(fix) = create_fix_logical_type(uri, schema, text, diagnostic) {
+                SchemaError::InvalidPrimitiveType {
+                    type_name,
+                    suggested,
+                    ..
+                } => {
+                    tracing::debug!(
+                        "Invalid primitive type error: {} -> {:?}",
+                        type_name,
+                        suggested
+                    );
+                    // This doesn't need schema!
+                    if let Some(fix) = create_fix_invalid_primitive_type(
+                        uri,
+                        diagnostic,
+                        &type_name,
+                        suggested.as_deref(),
+                    ) {
                         actions.push(fix);
                     }
+                }
+                // IMPORTANT: More specific patterns MUST come before generic ones!
+                // Check for specific decimal precision error first, before generic logical type error
+                SchemaError::Custom { message, .. }
+                    if message.contains("Decimal logical type requires")
+                        && message.contains("precision") =>
+                {
+                    tracing::debug!("Missing decimal precision error");
+                    if let Some(fix) = create_fix_missing_decimal_precision(uri, text, diagnostic) {
+                        actions.push(fix);
+                    }
+                }
+                SchemaError::Custom { message, .. }
+                    if message
+                        .contains("Duration logical type requires fixed size of 12 bytes") =>
+                {
+                    tracing::debug!("Invalid duration size error");
+                    if let Some(fix) = create_fix_invalid_duration_size(uri, text, diagnostic) {
+                        actions.push(fix);
+                    }
+                }
+                SchemaError::Custom { message, .. }
+                    if message.contains("logical type") && message.contains("requires") =>
+                {
+                    tracing::debug!("Logical type error");
+                    if let Some(schema) = schema
+                        && let Some(fix) = create_fix_logical_type(uri, schema, text, diagnostic)
+                    {
+                        actions.push(fix);
+                    }
+                }
+                SchemaError::NestedUnion { .. } => {
+                    tracing::debug!("Nested union error");
+                    if let Some(fix) = create_fix_nested_union(uri, text, diagnostic) {
+                        actions.push(fix);
+                    }
+                }
+                SchemaError::DuplicateUnionType { type_signature, .. } => {
+                    tracing::debug!("Duplicate union type error: {}", type_signature);
+                    if let Some(fix) =
+                        create_fix_duplicate_union_type(uri, text, diagnostic, &type_signature)
+                    {
+                        actions.push(fix);
+                    }
+                }
+                SchemaError::MissingField { field } if field == "fields" => {
+                    tracing::debug!("Missing fields error");
+                    if let Some(fix) = create_fix_missing_fields(uri, text, diagnostic) {
+                        actions.push(fix);
+                    }
+                }
+                SchemaError::Custom { message, .. }
+                    if message.contains("Default value") && message.contains("boolean") =>
+                {
+                    tracing::debug!("Invalid boolean default error");
+                    if let Some(fix) = create_fix_invalid_boolean_default(uri, text, diagnostic) {
+                        actions.push(fix);
+                    }
+                }
+                SchemaError::Custom { message, .. }
+                    if message.contains("Default value") && message.contains("array") =>
+                {
+                    tracing::debug!("Invalid array default error");
+                    if let Some(fix) = create_fix_invalid_array_default(uri, text, diagnostic) {
+                        actions.push(fix);
+                    }
+                }
+                SchemaError::Custom { message, .. }
+                    if message.contains("Default value") && message.contains("enum symbol") =>
+                {
+                    tracing::debug!("Invalid enum default error");
+                    if let Some(fix) = create_fix_invalid_enum_default(uri, text, diagnostic) {
+                        actions.push(fix);
+                    }
+                }
+                SchemaError::Custom { message, .. }
+                    if message.contains("Decimal scale")
+                        && message.contains("cannot be greater than precision") =>
+                {
+                    tracing::debug!("Invalid decimal scale error");
+                    // Offer multiple quick fixes for decimal scale
+                    let fixes = create_fix_invalid_decimal_scale(uri, text, diagnostic);
+                    actions.extend(fixes);
                 }
                 _ => {
                     tracing::debug!("No quick fix available for error type");
@@ -614,28 +733,35 @@ pub fn get_quick_fixes_from_diagnostics(
             if let Some(remainder) = msg.strip_prefix("Invalid name '") {
                 if let Some(name_end) = remainder.find('\'') {
                     let invalid_name = &remainder[..name_end];
-                    if let Some(fix) = create_fix_invalid_name(uri, schema, diagnostic, invalid_name) {
+                    if let Some(schema) = schema
+                        && let Some(fix) =
+                            create_fix_invalid_name(uri, schema, diagnostic, invalid_name)
+                    {
                         actions.push(fix);
                     }
                 }
             } else if let Some(remainder) = msg.strip_prefix("Invalid namespace '") {
                 if let Some(ns_end) = remainder.find('\'') {
                     let invalid_namespace = &remainder[..ns_end];
-                    if let Some(fix) =
-                        create_fix_invalid_namespace(uri, schema, diagnostic, invalid_namespace)
+                    if let Some(schema) = schema
+                        && let Some(fix) =
+                            create_fix_invalid_namespace(uri, schema, diagnostic, invalid_namespace)
                     {
                         actions.push(fix);
                     }
                 }
             } else if msg.contains("logical type") && msg.contains("requires") {
-                if let Some(fix) = create_fix_logical_type(uri, schema, text, diagnostic) {
+                if let Some(schema) = schema
+                    && let Some(fix) = create_fix_logical_type(uri, schema, text, diagnostic)
+                {
                     actions.push(fix);
                 }
             } else if let Some(remainder) = msg.strip_prefix("Duplicate symbol '")
                 && let Some(symbol_end) = remainder.find('\'')
             {
                 let duplicate_symbol = &remainder[..symbol_end];
-                if let Some(fix) = create_fix_duplicate_symbol(uri, text, diagnostic, duplicate_symbol)
+                if let Some(fix) =
+                    create_fix_duplicate_symbol(uri, text, diagnostic, duplicate_symbol)
                 {
                     actions.push(fix);
                 }
@@ -738,6 +864,948 @@ fn create_fix_invalid_namespace_structured(
         }),
         ..Default::default()
     })
+}
+
+/// Create a quick fix for invalid primitive type errors (typos)
+fn create_fix_invalid_primitive_type(
+    uri: &Url,
+    diagnostic: &Diagnostic,
+    invalid_type: &str,
+    suggested_type: Option<&str>,
+) -> Option<CodeAction> {
+    use async_lsp::lsp_types::{CodeActionKind, TextEdit, WorkspaceEdit};
+    use std::collections::HashMap;
+
+    // Must have a suggestion to create a fix
+    let fixed_type = suggested_type?;
+
+    // Use the diagnostic range (should be on the "type" field)
+    let type_range = diagnostic.range;
+
+    let mut changes = HashMap::new();
+    changes.insert(
+        uri.clone(),
+        vec![TextEdit {
+            range: type_range,
+            new_text: format!("\"{}\"", fixed_type),
+        }],
+    );
+
+    Some(CodeAction {
+        title: format!("Fix typo: '{}' → '{}'", invalid_type, fixed_type),
+        kind: Some(CodeActionKind::QUICKFIX),
+        diagnostics: Some(vec![diagnostic.clone()]),
+        edit: Some(WorkspaceEdit {
+            changes: Some(changes),
+            ..Default::default()
+        }),
+        ..Default::default()
+    })
+}
+
+/// Create a quick fix for nested union errors
+/// Flattens nested union like [["null", "string"]] to ["null", "string"]
+fn create_fix_nested_union(uri: &Url, text: &str, _diagnostic: &Diagnostic) -> Option<CodeAction> {
+    use async_lsp::lsp_types::{CodeActionKind, Position, Range, TextEdit, WorkspaceEdit};
+    use std::collections::HashMap;
+
+    // Search through the entire text for nested union pattern [[...]]
+    let lines: Vec<&str> = text.lines().collect();
+
+    for (line_idx, line) in lines.iter().enumerate() {
+        // Look for [[ pattern
+        if let Some(outer_start) = line.find("[[") {
+            // Need to extract the complete [[ ]] array
+            // Start from [[ and count brackets to find the matching ]]
+            let from_bracket = &line[outer_start..];
+            let mut bracket_count = 0;
+            let mut end_pos = 0;
+
+            for (idx, ch) in from_bracket.char_indices() {
+                if ch == '[' {
+                    bracket_count += 1;
+                } else if ch == ']' {
+                    bracket_count -= 1;
+                    if bracket_count == 0 {
+                        end_pos = idx + 1;
+                        break;
+                    }
+                }
+            }
+
+            if end_pos == 0 {
+                continue;
+            }
+
+            let json_str = &from_bracket[..end_pos];
+
+            // Try to parse as JSON value
+            if let Ok(value) = serde_json::from_str::<serde_json::Value>(json_str) {
+                // Check if it's an array containing an array
+                if let Some(outer_arr) = value.as_array()
+                    && outer_arr.len() == 1
+                    && let Some(inner_arr) = outer_arr[0].as_array()
+                {
+                    // Found nested union! Flatten it
+                    let flattened = serde_json::to_string(inner_arr).ok()?;
+
+                    // Calculate the range to replace
+                    let col_start = outer_start as u32;
+                    let col_end = (outer_start + end_pos) as u32;
+
+                    let replace_range = Range {
+                        start: Position {
+                            line: line_idx as u32,
+                            character: col_start,
+                        },
+                        end: Position {
+                            line: line_idx as u32,
+                            character: col_end,
+                        },
+                    };
+
+                    let mut changes = HashMap::new();
+                    changes.insert(
+                        uri.clone(),
+                        vec![TextEdit {
+                            range: replace_range,
+                            new_text: flattened,
+                        }],
+                    );
+
+                    return Some(CodeAction {
+                        title: "Flatten nested union".to_string(),
+                        kind: Some(CodeActionKind::QUICKFIX),
+                        diagnostics: None,
+                        edit: Some(WorkspaceEdit {
+                            changes: Some(changes),
+                            ..Default::default()
+                        }),
+                        is_preferred: Some(true),
+                        ..Default::default()
+                    });
+                }
+            }
+        }
+    }
+
+    None
+}
+
+/// Create a quick fix for duplicate union type errors
+/// Removes duplicate types from union like ["null", "string", "null"] → ["null", "string"]
+fn create_fix_duplicate_union_type(
+    uri: &Url,
+    text: &str,
+    _diagnostic: &Diagnostic,
+    duplicate_type: &str,
+) -> Option<CodeAction> {
+    use async_lsp::lsp_types::{CodeActionKind, Position, Range, TextEdit, WorkspaceEdit};
+    use std::collections::HashMap;
+
+    // Search through the text for union arrays that contain the duplicate type
+    let lines: Vec<&str> = text.lines().collect();
+
+    for (line_idx, line) in lines.iter().enumerate() {
+        // Look for arrays (unions start with [)
+        if let Some(array_start) = line.find('[') {
+            // Extract the complete array using bracket matching
+            let from_bracket = &line[array_start..];
+            let mut bracket_count = 0;
+            let mut end_pos = 0;
+
+            for (idx, ch) in from_bracket.char_indices() {
+                if ch == '[' {
+                    bracket_count += 1;
+                } else if ch == ']' {
+                    bracket_count -= 1;
+                    if bracket_count == 0 {
+                        end_pos = idx + 1;
+                        break;
+                    }
+                }
+            }
+
+            if end_pos == 0 {
+                continue;
+            }
+
+            let json_str = &from_bracket[..end_pos];
+
+            // Try to parse as JSON array
+            if let Ok(serde_json::Value::Array(arr)) =
+                serde_json::from_str::<serde_json::Value>(json_str)
+            {
+                // Check if this array contains the duplicate type
+                let type_strings: Vec<String> = arr
+                    .iter()
+                    .filter_map(|v| {
+                        match v {
+                            serde_json::Value::String(s) => Some(s.clone()),
+                            serde_json::Value::Object(obj) if obj.contains_key("type") => {
+                                // Complex type - serialize it for comparison
+                                serde_json::to_string(v).ok()
+                            }
+                            _ => None,
+                        }
+                    })
+                    .collect();
+
+                // Count occurrences of the duplicate type (case-insensitive comparison)
+                let duplicate_lower = duplicate_type.to_lowercase();
+                let count = type_strings
+                    .iter()
+                    .filter(|t| t.to_lowercase() == duplicate_lower)
+                    .count();
+
+                if count > 1 {
+                    // Found the union with duplicates! Remove duplicates
+                    let mut seen = std::collections::HashSet::new();
+                    let deduplicated: Vec<&serde_json::Value> = arr
+                        .iter()
+                        .filter(|v| {
+                            let type_str = match v {
+                                serde_json::Value::String(s) => s.clone(),
+                                _ => serde_json::to_string(v).unwrap_or_default(),
+                            };
+                            seen.insert(type_str)
+                        })
+                        .collect();
+
+                    // Convert back to JSON array
+                    let dedup_json: Vec<serde_json::Value> =
+                        deduplicated.iter().map(|v| (*v).clone()).collect();
+                    let fixed = serde_json::to_string(&dedup_json).ok()?;
+
+                    let col_start = array_start as u32;
+                    let col_end = (array_start + end_pos) as u32;
+
+                    let replace_range = Range {
+                        start: Position {
+                            line: line_idx as u32,
+                            character: col_start,
+                        },
+                        end: Position {
+                            line: line_idx as u32,
+                            character: col_end,
+                        },
+                    };
+
+                    let mut changes = HashMap::new();
+                    changes.insert(
+                        uri.clone(),
+                        vec![TextEdit {
+                            range: replace_range,
+                            new_text: fixed,
+                        }],
+                    );
+
+                    return Some(CodeAction {
+                        title: format!("Remove duplicate '{}' from union", duplicate_type),
+                        kind: Some(CodeActionKind::QUICKFIX),
+                        diagnostics: None,
+                        edit: Some(WorkspaceEdit {
+                            changes: Some(changes),
+                            ..Default::default()
+                        }),
+                        is_preferred: Some(true),
+                        ..Default::default()
+                    });
+                }
+            }
+        }
+    }
+
+    None
+}
+
+/// Create a quick fix for missing fields array in record
+/// Adds an empty "fields": [] to the record definition
+fn create_fix_missing_fields(
+    uri: &Url,
+    text: &str,
+    _diagnostic: &Diagnostic,
+) -> Option<CodeAction> {
+    use async_lsp::lsp_types::{CodeActionKind, Position, Range, TextEdit, WorkspaceEdit};
+    use std::collections::HashMap;
+
+    // Find the record definition that's missing fields
+    // Look for a record object with "type": "record" and "name" but no "fields"
+    let lines: Vec<&str> = text.lines().collect();
+
+    for (line_idx, line) in lines.iter().enumerate() {
+        // Look for lines containing "type": "record" or "name":
+        if line.contains("\"type\"") && line.contains("\"record\"") {
+            // Found a record definition, now find where to insert fields
+            // We need to find the end of the object (before the closing })
+
+            // Look ahead to find the closing brace
+            for (search_idx, search_line) in lines.iter().enumerate().skip(line_idx) {
+                if let Some(brace_pos) = search_line.rfind('}') {
+                    // Found closing brace - insert before it
+                    // Check if this line only has the brace or has other content
+                    let before_brace = &search_line[..brace_pos].trim();
+
+                    // Insert fields before the closing brace
+                    let indent = search_line
+                        .chars()
+                        .take_while(|c| c.is_whitespace())
+                        .collect::<String>();
+                    let new_text = if before_brace.is_empty() {
+                        // Closing brace is on its own line
+                        format!("{}  \"fields\": []\n", indent)
+                    } else {
+                        // Closing brace is after other content - add comma
+                        ",\n{}  \"fields\": []".to_string()
+                    };
+
+                    let col = brace_pos as u32;
+                    let replace_range = Range {
+                        start: Position {
+                            line: search_idx as u32,
+                            character: col,
+                        },
+                        end: Position {
+                            line: search_idx as u32,
+                            character: col,
+                        },
+                    };
+
+                    let mut changes = HashMap::new();
+                    changes.insert(
+                        uri.clone(),
+                        vec![TextEdit {
+                            range: replace_range,
+                            new_text,
+                        }],
+                    );
+
+                    return Some(CodeAction {
+                        title: "Add empty fields array".to_string(),
+                        kind: Some(CodeActionKind::QUICKFIX),
+                        diagnostics: None,
+                        edit: Some(WorkspaceEdit {
+                            changes: Some(changes),
+                            ..Default::default()
+                        }),
+                        is_preferred: Some(true),
+                        ..Default::default()
+                    });
+                }
+            }
+        }
+    }
+
+    None
+}
+
+/// Create a quick fix for invalid boolean default values
+/// Changes invalid values like "yes" to true or false
+fn create_fix_invalid_boolean_default(
+    uri: &Url,
+    text: &str,
+    diagnostic: &Diagnostic,
+) -> Option<CodeAction> {
+    use async_lsp::lsp_types::{CodeActionKind, Position, Range, TextEdit, WorkspaceEdit};
+    use std::collections::HashMap;
+
+    // Search for "default": "something" or "default": 123 near the diagnostic range
+    let lines: Vec<&str> = text.lines().collect();
+    let start_line = diagnostic.range.start.line as usize;
+    let end_line = (diagnostic.range.end.line as usize).min(lines.len());
+
+    for line_idx in start_line..=end_line {
+        if line_idx >= lines.len() {
+            break;
+        }
+
+        let line = lines[line_idx];
+
+        // Look for "default": followed by a value
+        if let Some(default_pos) = line.find("\"default\"") {
+            // Find the colon after "default"
+            if let Some(colon_pos) = line[default_pos..].find(':') {
+                let after_colon = &line[default_pos + colon_pos + 1..];
+
+                // Skip whitespace
+                let trimmed = after_colon.trim_start();
+                let ws_offset = after_colon.len() - trimmed.len();
+
+                // Find the value (could be quoted string, number, etc.)
+                // Look for the value until comma or end
+                let value_end = trimmed
+                    .find(',')
+                    .or_else(|| trimmed.find('}'))
+                    .unwrap_or(trimmed.len());
+                let value = trimmed[..value_end].trim();
+
+                // Calculate range of the value
+                let value_start_col = default_pos + colon_pos + 1 + ws_offset;
+                let value_end_col = value_start_col + value.len();
+
+                let value_range = Range {
+                    start: Position {
+                        line: line_idx as u32,
+                        character: value_start_col as u32,
+                    },
+                    end: Position {
+                        line: line_idx as u32,
+                        character: value_end_col as u32,
+                    },
+                };
+
+                // Determine the correct boolean value
+                // For strings like "yes", "true", "1" -> true
+                // For "no", "false", "0" -> false
+                // Default to false for safety
+                let lower_value = value.to_lowercase().trim_matches('"').to_string();
+                let correct_value = if lower_value.contains("true")
+                    || lower_value.contains("yes")
+                    || lower_value == "1"
+                {
+                    "true"
+                } else {
+                    "false"
+                };
+
+                let mut changes = HashMap::new();
+                changes.insert(
+                    uri.clone(),
+                    vec![TextEdit {
+                        range: value_range,
+                        new_text: correct_value.to_string(),
+                    }],
+                );
+
+                return Some(CodeAction {
+                    title: format!("Fix invalid boolean default: change to {}", correct_value),
+                    kind: Some(CodeActionKind::QUICKFIX),
+                    diagnostics: Some(vec![diagnostic.clone()]),
+                    edit: Some(WorkspaceEdit {
+                        changes: Some(changes),
+                        ..Default::default()
+                    }),
+                    is_preferred: Some(true),
+                    ..Default::default()
+                });
+            }
+        }
+    }
+
+    None
+}
+
+/// Create a quick fix for invalid array default values
+/// Changes invalid values like "string" or 123 to []
+fn create_fix_invalid_array_default(
+    uri: &Url,
+    text: &str,
+    diagnostic: &Diagnostic,
+) -> Option<CodeAction> {
+    use async_lsp::lsp_types::{CodeActionKind, Position, Range, TextEdit, WorkspaceEdit};
+    use std::collections::HashMap;
+
+    // Search for "default": <not-an-array> near the diagnostic range
+    let lines: Vec<&str> = text.lines().collect();
+    let start_line = diagnostic.range.start.line as usize;
+    let end_line = (diagnostic.range.end.line as usize).min(lines.len());
+
+    for line_idx in start_line..=end_line {
+        if line_idx >= lines.len() {
+            break;
+        }
+
+        let line = lines[line_idx];
+
+        // Look for "default": followed by a value
+        if let Some(default_pos) = line.find("\"default\"") {
+            // Find the colon after "default"
+            if let Some(colon_pos) = line[default_pos..].find(':') {
+                let after_colon = &line[default_pos + colon_pos + 1..];
+
+                // Skip whitespace
+                let trimmed = after_colon.trim_start();
+                let ws_offset = after_colon.len() - trimmed.len();
+
+                // Find the value
+                let value_end = trimmed
+                    .find(',')
+                    .or_else(|| trimmed.find('}'))
+                    .unwrap_or(trimmed.len());
+                let value = trimmed[..value_end].trim();
+
+                // Calculate range of the value
+                let value_start_col = default_pos + colon_pos + 1 + ws_offset;
+                let value_end_col = value_start_col + value.len();
+
+                let value_range = Range {
+                    start: Position {
+                        line: line_idx as u32,
+                        character: value_start_col as u32,
+                    },
+                    end: Position {
+                        line: line_idx as u32,
+                        character: value_end_col as u32,
+                    },
+                };
+
+                let mut changes = HashMap::new();
+                changes.insert(
+                    uri.clone(),
+                    vec![TextEdit {
+                        range: value_range,
+                        new_text: "[]".to_string(),
+                    }],
+                );
+
+                return Some(CodeAction {
+                    title: "Fix invalid array default: change to []".to_string(),
+                    kind: Some(CodeActionKind::QUICKFIX),
+                    diagnostics: Some(vec![diagnostic.clone()]),
+                    edit: Some(WorkspaceEdit {
+                        changes: Some(changes),
+                        ..Default::default()
+                    }),
+                    is_preferred: Some(true),
+                    ..Default::default()
+                });
+            }
+        }
+    }
+
+    None
+}
+
+/// Create a quick fix for invalid enum default values
+/// Adds the missing symbol to the enum's symbols array
+fn create_fix_invalid_enum_default(
+    uri: &Url,
+    text: &str,
+    diagnostic: &Diagnostic,
+) -> Option<CodeAction> {
+    use async_lsp::lsp_types::{CodeActionKind, Position, Range, TextEdit, WorkspaceEdit};
+    use std::collections::HashMap;
+
+    // Parse the error message to extract the invalid value: "Default value 'YELLOW' is not a valid enum symbol"
+    let msg = &diagnostic.message;
+    let invalid_value = if let Some(start) = msg.find('\'') {
+        if let Some(end) = msg[start + 1..].find('\'') {
+            &msg[start + 1..start + 1 + end]
+        } else {
+            return None;
+        }
+    } else {
+        return None;
+    };
+
+    // Search for "symbols": [...] to find the symbols array and add the missing symbol
+    let lines: Vec<&str> = text.lines().collect();
+
+    for (line_idx, line) in lines.iter().enumerate() {
+        if line.contains("\"symbols\"") {
+            // Try to extract the symbols array
+            if let Some(bracket_start) = line.find('[')
+                && let Some(bracket_end) = line.find(']')
+            {
+                let array_str = &line[bracket_start..=bracket_end];
+
+                // Parse as JSON array to verify it's valid
+                if let Ok(serde_json::Value::Array(arr)) =
+                    serde_json::from_str::<serde_json::Value>(array_str)
+                {
+                    let current_symbols: Vec<String> = arr
+                        .iter()
+                        .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                        .collect();
+
+                    // Check if the invalid value is already in the symbols (shouldn't be, but just in case)
+                    if current_symbols.iter().any(|s| s == invalid_value) {
+                        return None;
+                    }
+
+                    // Create new symbols array with the missing symbol added at the end
+                    let mut new_symbols = current_symbols.clone();
+                    new_symbols.push(invalid_value.to_string());
+
+                    // Serialize back to JSON
+                    let new_array_str = serde_json::to_string(&new_symbols).ok()?;
+
+                    // Calculate the range to replace (the entire symbols array)
+                    let range = Range {
+                        start: Position {
+                            line: line_idx as u32,
+                            character: bracket_start as u32,
+                        },
+                        end: Position {
+                            line: line_idx as u32,
+                            character: (bracket_end + 1) as u32,
+                        },
+                    };
+
+                    let mut changes = HashMap::new();
+                    changes.insert(
+                        uri.clone(),
+                        vec![TextEdit {
+                            range,
+                            new_text: new_array_str,
+                        }],
+                    );
+
+                    return Some(CodeAction {
+                        title: format!("Add '{}' to enum symbols", invalid_value),
+                        kind: Some(CodeActionKind::QUICKFIX),
+                        diagnostics: Some(vec![diagnostic.clone()]),
+                        edit: Some(WorkspaceEdit {
+                            changes: Some(changes),
+                            ..Default::default()
+                        }),
+                        is_preferred: Some(true),
+                        ..Default::default()
+                    });
+                }
+            }
+        }
+    }
+
+    None
+}
+
+/// Create quick fixes for invalid decimal scale errors
+/// Offers two options: reduce scale to match precision, or increase precision to match scale
+fn create_fix_invalid_decimal_scale(
+    uri: &Url,
+    text: &str,
+    diagnostic: &Diagnostic,
+) -> Vec<CodeAction> {
+    use async_lsp::lsp_types::{CodeActionKind, Position, Range, TextEdit, WorkspaceEdit};
+    use std::collections::HashMap;
+
+    let mut fixes = Vec::new();
+
+    // Parse the error message: "Decimal scale (10) cannot be greater than precision (5)"
+    let msg = &diagnostic.message;
+
+    // Extract scale and precision values
+    let scale_value = if let Some(start) = msg.find("scale (") {
+        let after = &msg[start + 7..];
+        if let Some(end) = after.find(')') {
+            after[..end].parse::<u32>().ok()
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+
+    let precision_value = if let Some(start) = msg.find("precision (") {
+        let after = &msg[start + 11..];
+        if let Some(end) = after.find(')') {
+            after[..end].parse::<u32>().ok()
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+
+    if scale_value.is_none() || precision_value.is_none() {
+        return fixes;
+    }
+
+    let scale = scale_value.unwrap();
+    let precision = precision_value.unwrap();
+
+    // Search for "scale": value and "precision": value in the text
+    let lines: Vec<&str> = text.lines().collect();
+    let start_line = diagnostic.range.start.line as usize;
+    let end_line = (diagnostic.range.end.line as usize).min(lines.len());
+
+    let mut scale_range: Option<Range> = None;
+    let mut precision_range: Option<Range> = None;
+
+    for line_idx in start_line..=end_line {
+        if line_idx >= lines.len() {
+            break;
+        }
+
+        let line = lines[line_idx];
+
+        // Look for "scale": followed by a number
+        if scale_range.is_none()
+            && line.contains("\"scale\"")
+            && let Some(scale_pos) = line.find("\"scale\"")
+            && let Some(colon_pos) = line[scale_pos..].find(':')
+        {
+            let after_colon = &line[scale_pos + colon_pos + 1..];
+            let trimmed = after_colon.trim_start();
+            let ws_offset = after_colon.len() - trimmed.len();
+
+            // Find the number value
+            let value_end = trimmed
+                .find(',')
+                .or_else(|| trimmed.find('}'))
+                .or_else(|| trimmed.find('\n'))
+                .unwrap_or(trimmed.len());
+            let value = trimmed[..value_end].trim();
+
+            let value_start_col = scale_pos + colon_pos + 1 + ws_offset;
+            let value_end_col = value_start_col + value.len();
+
+            scale_range = Some(Range {
+                start: Position {
+                    line: line_idx as u32,
+                    character: value_start_col as u32,
+                },
+                end: Position {
+                    line: line_idx as u32,
+                    character: value_end_col as u32,
+                },
+            });
+        }
+
+        // Look for "precision": followed by a number
+        if precision_range.is_none()
+            && line.contains("\"precision\"")
+            && let Some(prec_pos) = line.find("\"precision\"")
+            && let Some(colon_pos) = line[prec_pos..].find(':')
+        {
+            let after_colon = &line[prec_pos + colon_pos + 1..];
+            let trimmed = after_colon.trim_start();
+            let ws_offset = after_colon.len() - trimmed.len();
+
+            // Find the number value
+            let value_end = trimmed
+                .find(',')
+                .or_else(|| trimmed.find('}'))
+                .or_else(|| trimmed.find('\n'))
+                .unwrap_or(trimmed.len());
+            let value = trimmed[..value_end].trim();
+
+            let value_start_col = prec_pos + colon_pos + 1 + ws_offset;
+            let value_end_col = value_start_col + value.len();
+
+            precision_range = Some(Range {
+                start: Position {
+                    line: line_idx as u32,
+                    character: value_start_col as u32,
+                },
+                end: Position {
+                    line: line_idx as u32,
+                    character: value_end_col as u32,
+                },
+            });
+        }
+
+        // Break if we found both
+        if scale_range.is_some() && precision_range.is_some() {
+            break;
+        }
+    }
+
+    // Option 1: Set scale to match precision (reduce scale)
+    if let Some(range) = scale_range {
+        let mut changes = HashMap::new();
+        changes.insert(
+            uri.clone(),
+            vec![TextEdit {
+                range,
+                new_text: precision.to_string(),
+            }],
+        );
+
+        fixes.push(CodeAction {
+            title: format!("Set scale to {} (match precision)", precision),
+            kind: Some(CodeActionKind::QUICKFIX),
+            diagnostics: Some(vec![diagnostic.clone()]),
+            edit: Some(WorkspaceEdit {
+                changes: Some(changes),
+                ..Default::default()
+            }),
+            is_preferred: Some(true),
+            ..Default::default()
+        });
+    }
+
+    // Option 2: Set precision to match scale (increase precision)
+    if let Some(range) = precision_range {
+        let mut changes = HashMap::new();
+        changes.insert(
+            uri.clone(),
+            vec![TextEdit {
+                range,
+                new_text: scale.to_string(),
+            }],
+        );
+
+        fixes.push(CodeAction {
+            title: format!("Set precision to {} (match scale)", scale),
+            kind: Some(CodeActionKind::QUICKFIX),
+            diagnostics: Some(vec![diagnostic.clone()]),
+            edit: Some(WorkspaceEdit {
+                changes: Some(changes),
+                ..Default::default()
+            }),
+            is_preferred: Some(false),
+            ..Default::default()
+        });
+    }
+
+    fixes
+}
+
+/// Create a quick fix for missing decimal precision attribute
+/// Adds a "precision" field with a reasonable default value
+fn create_fix_missing_decimal_precision(
+    uri: &Url,
+    text: &str,
+    diagnostic: &Diagnostic,
+) -> Option<CodeAction> {
+    use async_lsp::lsp_types::{CodeActionKind, Position, Range, TextEdit, WorkspaceEdit};
+    use std::collections::HashMap;
+
+    // Search for "logicalType": "decimal" and add precision after it
+    let lines: Vec<&str> = text.lines().collect();
+    let start_line = diagnostic.range.start.line as usize;
+    let end_line = (diagnostic.range.end.line as usize).min(lines.len());
+
+    for line_idx in start_line..=end_line {
+        if line_idx >= lines.len() {
+            break;
+        }
+
+        let line = lines[line_idx];
+
+        // Look for "logicalType": "decimal"
+        if line.contains("\"logicalType\"") && line.contains("\"decimal\"") {
+            // Find the end of this line to insert precision after it
+            // We want to insert after the comma or before the closing brace
+
+            // Determine the indentation level
+            let indent = line
+                .chars()
+                .take_while(|c| c.is_whitespace())
+                .collect::<String>();
+
+            // Find position at end of line (before newline)
+            let insert_position = Position {
+                line: line_idx as u32,
+                character: line.len() as u32,
+            };
+
+            // Calculate a reasonable default precision based on the fixed size
+            // For fixed type, precision = floor(log10(2^(8*size - 1)))
+            // For size=16: max ~38 digits, let's default to 10 which is reasonable
+            let default_precision = 10;
+
+            let insert_text = format!(",\n{}\"precision\": {}", indent, default_precision);
+
+            let mut changes = HashMap::new();
+            changes.insert(
+                uri.clone(),
+                vec![TextEdit {
+                    range: Range {
+                        start: insert_position,
+                        end: insert_position,
+                    },
+                    new_text: insert_text,
+                }],
+            );
+
+            return Some(CodeAction {
+                title: format!("Add precision attribute (default: {})", default_precision),
+                kind: Some(CodeActionKind::QUICKFIX),
+                diagnostics: Some(vec![diagnostic.clone()]),
+                edit: Some(WorkspaceEdit {
+                    changes: Some(changes),
+                    ..Default::default()
+                }),
+                is_preferred: Some(true),
+                ..Default::default()
+            });
+        }
+    }
+
+    None
+}
+
+/// Create a quick fix for invalid duration size errors
+/// Duration logical type requires fixed size of exactly 12 bytes
+fn create_fix_invalid_duration_size(
+    uri: &Url,
+    text: &str,
+    diagnostic: &Diagnostic,
+) -> Option<CodeAction> {
+    use async_lsp::lsp_types::{CodeActionKind, Position, Range, TextEdit, WorkspaceEdit};
+    use std::collections::HashMap;
+
+    // Search for "size": <number> within the diagnostic range and replace it with 12
+    let lines: Vec<&str> = text.lines().collect();
+    let start_line = diagnostic.range.start.line as usize;
+    let end_line = (diagnostic.range.end.line as usize).min(lines.len());
+
+    for line_idx in start_line..=end_line {
+        if line_idx >= lines.len() {
+            break;
+        }
+
+        let line = lines[line_idx];
+
+        // Look for "size": followed by a number
+        if line.contains("\"size\"")
+            && let Some(size_pos) = line.find("\"size\"")
+            && let Some(colon_pos) = line[size_pos..].find(':')
+        {
+            let after_colon = &line[size_pos + colon_pos + 1..];
+            let trimmed = after_colon.trim_start();
+            let ws_offset = after_colon.len() - trimmed.len();
+
+            // Find the number value
+            let value_end = trimmed
+                .find(',')
+                .or_else(|| trimmed.find('}'))
+                .or_else(|| trimmed.find('\n'))
+                .unwrap_or(trimmed.len());
+            let value = trimmed[..value_end].trim();
+
+            // Calculate the range for the size value
+            let value_start_col = size_pos + colon_pos + 1 + ws_offset;
+            let value_end_col = value_start_col + value.len();
+
+            let range = Range {
+                start: Position {
+                    line: line_idx as u32,
+                    character: value_start_col as u32,
+                },
+                end: Position {
+                    line: line_idx as u32,
+                    character: value_end_col as u32,
+                },
+            };
+
+            let mut changes = HashMap::new();
+            changes.insert(
+                uri.clone(),
+                vec![TextEdit {
+                    range,
+                    new_text: "12".to_string(),
+                }],
+            );
+
+            return Some(CodeAction {
+                title: "Set size to 12 (required for duration)".to_string(),
+                kind: Some(CodeActionKind::QUICKFIX),
+                diagnostics: Some(vec![diagnostic.clone()]),
+                edit: Some(WorkspaceEdit {
+                    changes: Some(changes),
+                    ..Default::default()
+                }),
+                is_preferred: Some(true),
+                ..Default::default()
+            });
+        }
+    }
+
+    None
 }
 
 /// Create a quick fix for invalid name errors
@@ -1771,7 +2839,7 @@ mod tests {
         };
 
         let quick_fixes =
-            get_quick_fixes_from_diagnostics(&schema, schema_text, &uri, &[diagnostic]);
+            get_quick_fixes_from_diagnostics(Some(&schema), schema_text, &uri, &[diagnostic]);
 
         assert!(!quick_fixes.is_empty(), "Should have quick fixes");
 
@@ -1831,7 +2899,7 @@ mod tests {
         };
 
         let quick_fixes =
-            get_quick_fixes_from_diagnostics(&schema, schema_text, &uri, &[diagnostic]);
+            get_quick_fixes_from_diagnostics(Some(&schema), schema_text, &uri, &[diagnostic]);
 
         assert!(!quick_fixes.is_empty(), "Should have quick fixes");
 
@@ -1880,7 +2948,7 @@ mod tests {
         };
 
         let quick_fixes =
-            get_quick_fixes_from_diagnostics(&schema, schema_text, &uri, &[diagnostic]);
+            get_quick_fixes_from_diagnostics(Some(&schema), schema_text, &uri, &[diagnostic]);
 
         assert!(!quick_fixes.is_empty(), "Should have quick fixes");
 
@@ -1931,7 +2999,7 @@ mod tests {
         };
 
         let quick_fixes =
-            get_quick_fixes_from_diagnostics(&schema, schema_text, &uri, &[diagnostic]);
+            get_quick_fixes_from_diagnostics(Some(&schema), schema_text, &uri, &[diagnostic]);
 
         assert!(!quick_fixes.is_empty(), "Should have quick fixes");
 
@@ -1988,7 +3056,7 @@ mod tests {
 
         // Step 3: Get code actions (what server does when editor requests code actions)
         let uri = Url::parse("file:///test.avsc").unwrap();
-        let quick_fixes = get_quick_fixes_from_diagnostics(&schema, text, &uri, &diagnostics);
+        let quick_fixes = get_quick_fixes_from_diagnostics(Some(&schema), text, &uri, &diagnostics);
 
         eprintln!("\n=== QUICK FIXES (what server should return) ===");
         for (i, fix) in quick_fixes.iter().enumerate() {
@@ -2028,6 +3096,695 @@ mod tests {
         assert_eq!(
             fix_invalid_namespace("com.test-dash.app"),
             "com.test_dash.app"
+        );
+    }
+
+    #[test]
+    fn test_quick_fix_invalid_primitive_type() {
+        let schema_text = r#"{
+  "type": "record",
+  "name": "TestRecord",
+  "fields": [
+    {
+      "name": "typo_field",
+      "type": {
+        "type": "strign"
+      }
+    }
+  ]
+}"#;
+
+        let uri = Url::parse("file:///test.avsc").unwrap();
+
+        // This should produce an InvalidPrimitiveType error with suggestion "string"
+        let diagnostics =
+            crate::handlers::diagnostics::parse_and_validate_with_workspace(schema_text, None);
+
+        assert_eq!(
+            diagnostics.len(),
+            1,
+            "Expected 1 diagnostic, got {}",
+            diagnostics.len()
+        );
+        assert!(
+            diagnostics[0].message.contains("Invalid primitive type")
+                && diagnostics[0].message.contains("strign")
+                && diagnostics[0].message.contains("string"),
+            "Unexpected error message: {}",
+            diagnostics[0].message
+        );
+
+        // For code actions, we need a dummy schema (the actual schema failed to parse)
+        // But the quick fix doesn't need the schema for InvalidPrimitiveType
+        let mut parser = crate::schema::AvroParser::new();
+        let dummy_schema = parser.parse(r#"{"type": "null"}"#).unwrap();
+
+        // Generate quick fixes
+        let quick_fixes =
+            get_quick_fixes_from_diagnostics(Some(&dummy_schema), schema_text, &uri, &diagnostics);
+
+        // Should have one quick fix
+        assert_eq!(
+            quick_fixes.len(),
+            1,
+            "Expected 1 quick fix, got {}",
+            quick_fixes.len()
+        );
+        assert!(quick_fixes[0].title.contains("strign"));
+        assert!(quick_fixes[0].title.contains("string"));
+        assert!(quick_fixes[0].title.contains("Fix typo"));
+    }
+
+    #[test]
+    fn test_quick_fix_primitive_typo_variants() {
+        // Test various typos and their expected corrections
+        // Only typos within Levenshtein distance ≤ 3
+        let test_cases = vec![
+            ("bites", "bytes"),
+            ("lon", "long"),
+            ("flot", "float"),
+            ("nul", "null"),
+            ("boolena", "boolean"),
+            ("strin", "string"),
+            ("doubl", "double"),
+            ("strign", "string"),
+        ];
+
+        for (typo, expected) in test_cases {
+            let schema_text = format!(
+                r#"{{
+  "type": "record",
+  "name": "TestRecord",
+  "fields": [
+    {{
+      "name": "field",
+      "type": {{
+        "type": "{}"
+      }}
+    }}
+  ]
+}}"#,
+                typo
+            );
+
+            let uri = Url::parse("file:///test.avsc").unwrap();
+            let diagnostics =
+                crate::handlers::diagnostics::parse_and_validate_with_workspace(&schema_text, None);
+
+            assert_eq!(
+                diagnostics.len(),
+                1,
+                "Expected 1 diagnostic for typo '{}', got {}",
+                typo,
+                diagnostics.len()
+            );
+            assert!(
+                diagnostics[0].message.contains("Invalid primitive type"),
+                "Expected 'Invalid primitive type' in message for typo '{}', got: {}",
+                typo,
+                diagnostics[0].message
+            );
+            assert!(
+                diagnostics[0].message.contains(expected),
+                "Expected suggestion '{}' for typo '{}', got message: {}",
+                expected,
+                typo,
+                diagnostics[0].message
+            );
+
+            // Verify quick fix is generated
+            let mut parser = crate::schema::AvroParser::new();
+            let dummy_schema = parser.parse(r#"{"type": "null"}"#).unwrap();
+            let quick_fixes = get_quick_fixes_from_diagnostics(
+                Some(&dummy_schema),
+                &schema_text,
+                &uri,
+                &diagnostics,
+            );
+
+            assert_eq!(
+                quick_fixes.len(),
+                1,
+                "Expected 1 quick fix for typo '{}', got {}",
+                typo,
+                quick_fixes.len()
+            );
+            assert!(
+                quick_fixes[0].title.contains(expected),
+                "Expected quick fix title to contain '{}' for typo '{}', got: {}",
+                expected,
+                typo,
+                quick_fixes[0].title
+            );
+        }
+    }
+
+    #[test]
+    fn test_quick_fix_primitive_typo_in_nested_structures() {
+        // Test typo inside map
+        let map_schema = r#"{
+  "type": "record",
+  "name": "TestMap",
+  "fields": [
+    {
+      "name": "lookup",
+      "type": {
+        "type": "map",
+        "values": {
+          "type": "strin"
+        }
+      }
+    }
+  ]
+}"#;
+
+        let _uri = Url::parse("file:///test.avsc").unwrap();
+        let diagnostics =
+            crate::handlers::diagnostics::parse_and_validate_with_workspace(map_schema, None);
+        assert_eq!(diagnostics.len(), 1);
+        assert!(diagnostics[0].message.contains("strin"));
+        assert!(diagnostics[0].message.contains("string"));
+
+        // Test typo inside union
+        let union_schema = r#"{
+  "type": "record",
+  "name": "TestUnion",
+  "fields": [
+    {
+      "name": "optional_value",
+      "type": [
+        "null",
+        {
+          "type": "doubl"
+        }
+      ]
+    }
+  ]
+}"#;
+
+        let diagnostics =
+            crate::handlers::diagnostics::parse_and_validate_with_workspace(union_schema, None);
+        assert_eq!(diagnostics.len(), 1);
+        assert!(diagnostics[0].message.contains("doubl"));
+        assert!(diagnostics[0].message.contains("double"));
+    }
+
+    #[test]
+    fn test_no_suggestion_for_very_different_types() {
+        // Test that we don't suggest anything for types that are very different (> 3 edits)
+        let schema_text = r#"{
+  "type": "record",
+  "name": "TestRecord",
+  "fields": [
+    {
+      "name": "field",
+      "type": {
+        "type": "completelyinvalid"
+      }
+    }
+  ]
+}"#;
+
+        let diagnostics =
+            crate::handlers::diagnostics::parse_and_validate_with_workspace(schema_text, None);
+        assert_eq!(diagnostics.len(), 1);
+        assert!(diagnostics[0].message.contains("Invalid primitive type"));
+        // Should not contain "Did you mean" since no close match exists
+        assert!(!diagnostics[0].message.contains("Did you mean"));
+    }
+
+    #[test]
+    fn test_end_to_end_parse_error_quick_fix() {
+        // This test simulates the full flow:
+        // 1. Parse a schema with an invalid primitive type
+        // 2. Get diagnostics (schema is None because parse failed)
+        // 3. Request quick fixes with None schema
+        // 4. Verify quick fix is generated and can be applied
+
+        let schema_text = r#"{
+  "type": "record",
+  "name": "TestRecord",
+  "fields": [
+    {
+      "name": "myfield",
+      "type": {
+        "type": "strign"
+      }
+    }
+  ]
+}"#;
+
+        let uri = Url::parse("file:///test.avsc").unwrap();
+
+        // Step 1: Try to parse - this will fail
+        let mut parser = crate::schema::AvroParser::new();
+        let parse_result = parser.parse(schema_text);
+        assert!(parse_result.is_err(), "Schema should fail to parse");
+
+        // Step 2: Get diagnostics (which includes structured error data)
+        let diagnostics =
+            crate::handlers::diagnostics::parse_and_validate_with_workspace(schema_text, None);
+        assert_eq!(diagnostics.len(), 1);
+        assert!(diagnostics[0].message.contains("strign"));
+        assert!(diagnostics[0].message.contains("string"));
+        assert!(
+            diagnostics[0].data.is_some(),
+            "Diagnostic should have structured error data"
+        );
+
+        // Step 3: Request quick fixes with None schema (simulating what state.rs does)
+        let quick_fixes = get_quick_fixes_from_diagnostics(None, schema_text, &uri, &diagnostics);
+
+        // Step 4: Verify quick fix was generated
+        assert_eq!(
+            quick_fixes.len(),
+            1,
+            "Should have 1 quick fix even with None schema"
+        );
+        let fix = &quick_fixes[0];
+        assert_eq!(fix.title, "Fix typo: 'strign' → 'string'");
+        assert!(fix.edit.is_some(), "Quick fix should have edit");
+
+        // Verify the edit would fix the typo
+        let edit = fix.edit.as_ref().unwrap();
+        assert!(edit.changes.is_some());
+        let changes = edit.changes.as_ref().unwrap();
+        assert!(changes.contains_key(&uri));
+        let text_edits = &changes[&uri];
+        assert_eq!(text_edits.len(), 1);
+        assert_eq!(text_edits[0].new_text, "\"string\"");
+    }
+
+    #[test]
+    fn test_quick_fix_nested_union() {
+        // Test that nested union [["null", "string"]] gets fixed to ["null", "string"]
+        let schema_text = r#"{
+  "type": "record",
+  "name": "Test",
+  "fields": [
+    {"name": "value", "type": [["null", "string"]]}
+  ]
+}"#;
+
+        let uri = Url::parse("file:///test.avsc").unwrap();
+
+        // Parse should succeed, but validation should fail
+        let mut parser = crate::schema::AvroParser::new();
+        let parse_result = parser.parse(schema_text);
+        assert!(parse_result.is_ok(), "Schema should parse successfully");
+
+        // Get diagnostics
+        let diagnostics =
+            crate::handlers::diagnostics::parse_and_validate_with_workspace(schema_text, None);
+        assert_eq!(diagnostics.len(), 1);
+        assert!(diagnostics[0].message.contains("Nested unions"));
+
+        // Get schema for code actions
+        let schema = parse_result.ok();
+
+        // Request quick fixes
+        let quick_fixes =
+            get_quick_fixes_from_diagnostics(schema.as_ref(), schema_text, &uri, &diagnostics);
+
+        // Verify quick fix was generated
+        assert_eq!(
+            quick_fixes.len(),
+            1,
+            "Should have 1 quick fix for nested union"
+        );
+        let fix = &quick_fixes[0];
+        assert_eq!(fix.title, "Flatten nested union");
+        assert!(fix.edit.is_some(), "Quick fix should have edit");
+
+        // Verify the edit flattens the union
+        let edit = fix.edit.as_ref().unwrap();
+        assert!(edit.changes.is_some());
+        let changes = edit.changes.as_ref().unwrap();
+        assert!(changes.contains_key(&uri));
+        let text_edits = &changes[&uri];
+        assert_eq!(text_edits.len(), 1);
+
+        // Should flatten to ["null","string"] (no spaces in JSON serialization)
+        let expected = r#"["null","string"]"#;
+        assert_eq!(text_edits[0].new_text, expected);
+    }
+
+    #[test]
+    fn test_quick_fix_duplicate_union_type() {
+        // Test that duplicate union types ["null", "string", "null"] gets fixed to ["null", "string"]
+        let schema_text = r#"{
+  "type": "record",
+  "name": "Test",
+  "fields": [
+    {"name": "value", "type": ["null", "string", "null"]}
+  ]
+}"#;
+
+        let uri = Url::parse("file:///test.avsc").unwrap();
+
+        // Parse should succeed, but validation should fail
+        let mut parser = crate::schema::AvroParser::new();
+        let parse_result = parser.parse(schema_text);
+        assert!(parse_result.is_ok(), "Schema should parse successfully");
+
+        // Get diagnostics
+        let diagnostics =
+            crate::handlers::diagnostics::parse_and_validate_with_workspace(schema_text, None);
+        assert_eq!(diagnostics.len(), 1);
+        assert!(diagnostics[0].message.contains("Duplicate type in union"));
+
+        // Get schema for code actions
+        let schema = parse_result.ok();
+
+        // Request quick fixes
+        let quick_fixes =
+            get_quick_fixes_from_diagnostics(schema.as_ref(), schema_text, &uri, &diagnostics);
+
+        // Verify quick fix was generated
+        assert_eq!(
+            quick_fixes.len(),
+            1,
+            "Should have 1 quick fix for duplicate union type"
+        );
+        let fix = &quick_fixes[0];
+        assert!(fix.title.contains("Remove duplicate"));
+        assert!(fix.edit.is_some(), "Quick fix should have edit");
+
+        // Verify the edit removes the duplicate
+        let edit = fix.edit.as_ref().unwrap();
+        assert!(edit.changes.is_some());
+        let changes = edit.changes.as_ref().unwrap();
+        assert!(changes.contains_key(&uri));
+        let text_edits = &changes[&uri];
+        assert_eq!(text_edits.len(), 1);
+
+        // Should have only one occurrence of "null"
+        let fixed_text = &text_edits[0].new_text;
+        assert_eq!(
+            fixed_text.matches("\"null\"").count(),
+            1,
+            "Should have exactly one 'null' after fix"
+        );
+        assert!(
+            fixed_text.contains("\"string\""),
+            "Should still have 'string'"
+        );
+    }
+
+    #[test]
+    fn test_quick_fix_missing_fields() {
+        // Test that missing fields array gets added to record
+        let schema_text = r#"{
+  "type": "record",
+  "name": "Incomplete"
+}"#;
+
+        let uri = Url::parse("file:///test.avsc").unwrap();
+
+        // Parse should fail
+        let mut parser = crate::schema::AvroParser::new();
+        let parse_result = parser.parse(schema_text);
+        assert!(parse_result.is_err(), "Schema should fail to parse");
+
+        // Get diagnostics
+        let diagnostics =
+            crate::handlers::diagnostics::parse_and_validate_with_workspace(schema_text, None);
+        assert_eq!(diagnostics.len(), 1);
+        // The error message might be generic, but structured data should have the field info
+        assert!(
+            diagnostics[0].data.is_some(),
+            "Should have structured error data"
+        );
+
+        // Request quick fixes (schema is None because parse failed)
+        let quick_fixes = get_quick_fixes_from_diagnostics(None, schema_text, &uri, &diagnostics);
+
+        // Verify quick fix was generated
+        assert_eq!(
+            quick_fixes.len(),
+            1,
+            "Should have 1 quick fix for missing fields"
+        );
+        let fix = &quick_fixes[0];
+        assert_eq!(fix.title, "Add empty fields array");
+        assert!(fix.edit.is_some(), "Quick fix should have edit");
+
+        // Verify the edit adds fields array
+        let edit = fix.edit.as_ref().unwrap();
+        assert!(edit.changes.is_some());
+        let changes = edit.changes.as_ref().unwrap();
+        assert!(changes.contains_key(&uri));
+        let text_edits = &changes[&uri];
+        assert_eq!(text_edits.len(), 1);
+
+        // Should add "fields": []
+        let new_text = &text_edits[0].new_text;
+        assert!(new_text.contains("\"fields\""), "Should add fields key");
+        assert!(new_text.contains("[]"), "Should add empty array");
+    }
+
+    #[test]
+    fn test_quick_fix_invalid_enum_default_adds_symbol() {
+        let schema_text = r#"{
+  "type": "record",
+  "name": "BadEnumDefault",
+  "fields": [
+    {
+      "name": "color",
+      "type": {
+        "type": "enum",
+        "name": "Color",
+        "symbols": ["RED", "GREEN", "BLUE"]
+      },
+      "default": "YELLOW"
+    }
+  ]
+}"#;
+
+        let uri = Url::parse("file:///test.avsc").unwrap();
+
+        // Create diagnostic for invalid enum default
+        let diagnostic = Diagnostic {
+            range: Range {
+                start: Position {
+                    line: 4,
+                    character: 4,
+                },
+                end: Position {
+                    line: 12,
+                    character: 5,
+                },
+            },
+            severity: Some(async_lsp::lsp_types::DiagnosticSeverity::ERROR),
+            message: "Validation error: Default value 'YELLOW' is not a valid enum symbol"
+                .to_string(),
+            source: Some("avro-lsp".to_string()),
+            data: Some(serde_json::json!({
+                "Custom": {
+                    "message": "Default value 'YELLOW' is not a valid enum symbol",
+                    "range": null
+                }
+            })),
+            ..Default::default()
+        };
+
+        let quick_fixes = get_quick_fixes_from_diagnostics(None, schema_text, &uri, &[diagnostic]);
+
+        // Verify quick fix was generated
+        assert_eq!(
+            quick_fixes.len(),
+            1,
+            "Should have 1 quick fix for invalid enum default"
+        );
+        let fix = &quick_fixes[0];
+        assert_eq!(fix.title, "Add 'YELLOW' to enum symbols");
+        assert!(fix.edit.is_some(), "Quick fix should have edit");
+
+        // Verify the edit adds YELLOW to symbols array
+        let edit = fix.edit.as_ref().unwrap();
+        assert!(edit.changes.is_some());
+        let changes = edit.changes.as_ref().unwrap();
+        assert!(changes.contains_key(&uri));
+        let text_edits = &changes[&uri];
+        assert_eq!(text_edits.len(), 1);
+
+        // Should replace ["RED", "GREEN", "BLUE"] with ["RED","GREEN","BLUE","YELLOW"]
+        let new_text = &text_edits[0].new_text;
+        assert!(new_text.contains("YELLOW"), "Should add YELLOW to symbols");
+        assert!(new_text.contains("RED"), "Should preserve RED");
+        assert!(new_text.contains("GREEN"), "Should preserve GREEN");
+        assert!(new_text.contains("BLUE"), "Should preserve BLUE");
+
+        // Verify it's a proper JSON array
+        let parsed: serde_json::Value =
+            serde_json::from_str(new_text).expect("Should be valid JSON array");
+        assert!(parsed.is_array(), "Should be a JSON array");
+        let arr = parsed.as_array().unwrap();
+        assert_eq!(arr.len(), 4, "Should have 4 symbols now");
+        assert_eq!(arr[3].as_str().unwrap(), "YELLOW", "YELLOW should be last");
+    }
+
+    #[test]
+    fn test_quick_fix_invalid_decimal_scale() {
+        let schema_text = r#"{
+  "type": "record",
+  "name": "BadDecimalScale",
+  "fields": [
+    {
+      "name": "price",
+      "type": {
+        "type": "fixed",
+        "name": "DecimalBadScale",
+        "size": 8,
+        "logicalType": "decimal",
+        "precision": 5,
+        "scale": 10
+      }
+    }
+  ]
+}"#;
+
+        let uri = Url::parse("file:///test.avsc").unwrap();
+
+        // Create diagnostic for invalid decimal scale
+        let diagnostic = Diagnostic {
+            range: Range {
+                start: Position {
+                    line: 6,
+                    character: 14,
+                },
+                end: Position {
+                    line: 13,
+                    character: 7,
+                },
+            },
+            severity: Some(async_lsp::lsp_types::DiagnosticSeverity::ERROR),
+            message: "Validation error: Decimal scale (10) cannot be greater than precision (5)"
+                .to_string(),
+            source: Some("avro-lsp".to_string()),
+            data: Some(serde_json::json!({
+                "Custom": {
+                    "message": "Decimal scale (10) cannot be greater than precision (5)",
+                    "range": null
+                }
+            })),
+            ..Default::default()
+        };
+
+        let quick_fixes = get_quick_fixes_from_diagnostics(None, schema_text, &uri, &[diagnostic]);
+
+        // Should offer 2 quick fixes
+        assert_eq!(
+            quick_fixes.len(),
+            2,
+            "Should have 2 quick fixes for decimal scale"
+        );
+
+        // Fix 1: Set scale to 5 (match precision)
+        let fix1 = &quick_fixes[0];
+        assert_eq!(fix1.title, "Set scale to 5 (match precision)");
+        assert!(
+            fix1.is_preferred.unwrap_or(false),
+            "First fix should be preferred"
+        );
+
+        // Verify edit replaces scale value
+        let edit1 = fix1.edit.as_ref().unwrap();
+        let changes1 = edit1.changes.as_ref().unwrap();
+        let text_edits1 = &changes1[&uri];
+        assert_eq!(text_edits1.len(), 1);
+        assert_eq!(text_edits1[0].new_text, "5", "Should set scale to 5");
+
+        // Fix 2: Set precision to 10 (match scale)
+        let fix2 = &quick_fixes[1];
+        assert_eq!(fix2.title, "Set precision to 10 (match scale)");
+        assert!(
+            !fix2.is_preferred.unwrap_or(true),
+            "Second fix should not be preferred"
+        );
+
+        // Verify edit replaces precision value
+        let edit2 = fix2.edit.as_ref().unwrap();
+        let changes2 = edit2.changes.as_ref().unwrap();
+        let text_edits2 = &changes2[&uri];
+        assert_eq!(text_edits2.len(), 1);
+        assert_eq!(text_edits2[0].new_text, "10", "Should set precision to 10");
+    }
+
+    #[test]
+    fn test_quick_fix_invalid_duration_size() {
+        let schema_text = r#"{
+  "type": "record",
+  "name": "BadDurationSize",
+  "fields": [
+    {
+      "name": "elapsed",
+      "type": {
+        "type": "fixed",
+        "name": "BadDuration",
+        "size": 16,
+        "logicalType": "duration"
+      }
+    }
+  ]
+}"#;
+
+        let uri = Url::parse("file:///test.avsc").unwrap();
+
+        // Create diagnostic for invalid duration size
+        let diagnostic = Diagnostic {
+            range: Range {
+                start: Position {
+                    line: 6,
+                    character: 14,
+                },
+                end: Position {
+                    line: 11,
+                    character: 7,
+                },
+            },
+            severity: Some(async_lsp::lsp_types::DiagnosticSeverity::ERROR),
+            message: "Validation error: Duration logical type requires fixed size of 12 bytes"
+                .to_string(),
+            source: Some("avro-lsp".to_string()),
+            data: Some(serde_json::json!({
+                "Custom": {
+                    "message": "Duration logical type requires fixed size of 12 bytes",
+                    "range": null
+                }
+            })),
+            ..Default::default()
+        };
+
+        let quick_fixes = get_quick_fixes_from_diagnostics(None, schema_text, &uri, &[diagnostic]);
+
+        // Should offer 1 quick fix
+        assert_eq!(
+            quick_fixes.len(),
+            1,
+            "Should have 1 quick fix for duration size"
+        );
+
+        // Fix: Set size to 12 (required for duration)
+        let fix = &quick_fixes[0];
+        assert_eq!(fix.title, "Set size to 12 (required for duration)");
+        assert!(fix.is_preferred.unwrap_or(false), "Fix should be preferred");
+
+        // Verify edit replaces size value
+        let edit = fix.edit.as_ref().unwrap();
+        let changes = edit.changes.as_ref().unwrap();
+        let text_edits = &changes[&uri];
+        assert_eq!(text_edits.len(), 1);
+        assert_eq!(text_edits[0].new_text, "12", "Should set size to 12");
+
+        // Verify the range targets the size value "16"
+        assert_eq!(
+            text_edits[0].range.start.line, 9,
+            "Should be on the size line"
+        );
+        assert_eq!(
+            text_edits[0].range.start.character, 16,
+            "Should start at the size value"
         );
     }
 }

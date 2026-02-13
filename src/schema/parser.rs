@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use super::error::{Result, SchemaError};
-use super::json_parser::{parse_json, JsonValue};
+use super::json_parser::{JsonValue, parse_json};
 use super::types::*;
 
 pub struct AvroParser {
@@ -35,7 +35,7 @@ impl AvroParser {
         match value {
             // Primitive type as string: "int", "string", etc.
             JsonValue::String(s, range) => {
-                if let Some(primitive) = PrimitiveType::from_str(s) {
+                if let Some(primitive) = PrimitiveType::parse(s) {
                     Ok(AvroType::Primitive(primitive))
                 } else {
                     // Must be a type reference
@@ -66,7 +66,7 @@ impl AvroParser {
                     "array" => self.parse_array(obj),
                     "map" => self.parse_map(obj),
                     "fixed" => self.parse_fixed(obj, value.range()),
-                    prim if PrimitiveType::from_str(prim).is_some() => {
+                    prim if PrimitiveType::parse(prim).is_some() => {
                         // Check if this primitive has logicalType or precision/scale attributes
                         if obj.contains_key("logicalType")
                             || obj.contains_key("precision")
@@ -74,13 +74,13 @@ impl AvroParser {
                         {
                             self.parse_primitive_object(obj, value.range())
                         } else {
-                            Ok(AvroType::Primitive(PrimitiveType::from_str(prim).unwrap()))
+                            Ok(AvroType::Primitive(PrimitiveType::parse(prim).unwrap()))
                         }
                     }
                     _ => Err(SchemaError::InvalidPrimitiveType {
                         type_name: type_name.to_string(),
                         range: obj.get("type").map(|v| v.range()),
-                        suggested: None,
+                        suggested: suggest_primitive_type(type_name),
                     }),
                 }
             }
@@ -355,13 +355,12 @@ impl AvroParser {
         let type_name = self.get_required_string(obj, "type")?;
 
         // Verify it's actually a primitive type
-        let primitive_type = PrimitiveType::from_str(&type_name).ok_or_else(|| {
-            SchemaError::InvalidPrimitiveType {
+        let primitive_type =
+            PrimitiveType::parse(&type_name).ok_or_else(|| SchemaError::InvalidPrimitiveType {
                 type_name: type_name.clone(),
                 range: obj.get("type").map(|v| v.range()),
-                suggested: None,
-            }
-        })?;
+                suggested: suggest_primitive_type(&type_name),
+            })?;
 
         // Parse logical type and attributes
         let logical_type = self.get_optional_string(obj, "logicalType");
@@ -434,6 +433,77 @@ impl AvroParser {
             }
         }
     }
+}
+
+/// Calculate Levenshtein distance between two strings
+#[allow(clippy::needless_range_loop)]
+fn levenshtein_distance(s1: &str, s2: &str) -> usize {
+    let len1 = s1.chars().count();
+    let len2 = s2.chars().count();
+
+    if len1 == 0 {
+        return len2;
+    }
+    if len2 == 0 {
+        return len1;
+    }
+
+    let mut matrix = vec![vec![0; len2 + 1]; len1 + 1];
+
+    for i in 0..=len1 {
+        matrix[i][0] = i;
+    }
+    for j in 0..=len2 {
+        matrix[0][j] = j;
+    }
+
+    let s1_chars: Vec<char> = s1.chars().collect();
+    let s2_chars: Vec<char> = s2.chars().collect();
+
+    for i in 1..=len1 {
+        for j in 1..=len2 {
+            let cost = if s1_chars[i - 1] == s2_chars[j - 1] {
+                0
+            } else {
+                1
+            };
+            matrix[i][j] = std::cmp::min(
+                std::cmp::min(matrix[i - 1][j] + 1, matrix[i][j - 1] + 1),
+                matrix[i - 1][j - 1] + cost,
+            );
+        }
+    }
+
+    matrix[len1][len2]
+}
+
+/// Suggest the closest valid primitive type for an invalid type name
+fn suggest_primitive_type(invalid_type: &str) -> Option<String> {
+    const PRIMITIVE_TYPES: &[&str] = &[
+        "null", "boolean", "int", "long", "float", "double", "bytes", "string",
+    ];
+
+    let invalid_lower = invalid_type.to_lowercase();
+
+    // Find the primitive with the smallest Levenshtein distance
+    let mut best_match: Option<(&str, usize)> = None;
+
+    for &prim in PRIMITIVE_TYPES {
+        let distance = levenshtein_distance(&invalid_lower, prim);
+
+        // Only suggest if distance is reasonable (≤ 3 edits)
+        if distance <= 3 {
+            match best_match {
+                None => best_match = Some((prim, distance)),
+                Some((_, best_dist)) if distance < best_dist => {
+                    best_match = Some((prim, distance));
+                }
+                _ => {}
+            }
+        }
+    }
+
+    best_match.map(|(prim, _)| prim.to_string())
 }
 
 impl Default for AvroParser {

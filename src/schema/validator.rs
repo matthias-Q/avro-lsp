@@ -126,7 +126,12 @@ impl AvroValidator {
 
             // Validate default value if present
             if let Some(default_value) = &field.default {
-                self.validate_default_value(default_value, &field.field_type, named_types)?;
+                self.validate_default_value(
+                    default_value,
+                    &field.field_type,
+                    named_types,
+                    field.range,
+                )?;
             }
         }
 
@@ -232,7 +237,8 @@ impl AvroValidator {
                 // Duration must be exactly 12 bytes
                 if fixed.size != 12 {
                     return Err(SchemaError::Custom {
-                        message: "Duration logical type requires fixed size of 12 bytes".to_string(),
+                        message: "Duration logical type requires fixed size of 12 bytes"
+                            .to_string(),
                         range: fixed.range,
                     });
                 }
@@ -271,7 +277,8 @@ impl AvroValidator {
                     // Decimal requires precision
                     if primitive.precision.is_none() {
                         return Err(SchemaError::Custom {
-                            message: "Decimal logical type requires 'precision' attribute".to_string(),
+                            message: "Decimal logical type requires 'precision' attribute"
+                                .to_string(),
                             range: primitive.range,
                         });
                     }
@@ -291,13 +298,29 @@ impl AvroValidator {
                 }
 
                 // Invalid combinations
-                _ => Err(SchemaError::Custom {
-                    message: format!(
-                        "Invalid logical type '{}' for primitive type '{:?}'",
-                        logical_type, primitive.primitive_type
-                    ),
-                    range: primitive.range,
-                }),
+                _ => {
+                    // Provide helpful error message with required base type
+                    let required_type = match logical_type.as_str() {
+                        "date" | "time-millis" => "int",
+                        "time-micros"
+                        | "timestamp-millis"
+                        | "timestamp-micros"
+                        | "local-timestamp-millis"
+                        | "local-timestamp-micros" => "long",
+                        "uuid" => "string",
+                        "decimal" => "bytes or fixed",
+                        "duration" => "fixed",
+                        _ => "unknown",
+                    };
+
+                    Err(SchemaError::Custom {
+                        message: format!(
+                            "Invalid logical type '{}' for primitive type '{:?}' - requires {}",
+                            logical_type, primitive.primitive_type, required_type
+                        ),
+                        range: primitive.range,
+                    })
+                }
             }
         } else {
             // No logical type is valid
@@ -372,7 +395,7 @@ impl AvroValidator {
         resolver: &dyn TypeResolver,
     ) -> Result<()> {
         // Check if it's a primitive type
-        if PrimitiveType::from_str(name).is_some() {
+        if PrimitiveType::parse(name).is_some() {
             return Ok(());
         }
 
@@ -441,6 +464,7 @@ impl AvroValidator {
         default: &serde_json::Value,
         field_type: &AvroType,
         named_types: &HashMap<String, AvroType>,
+        field_range: Option<async_lsp::lsp_types::Range>,
     ) -> Result<()> {
         use serde_json::Value;
 
@@ -450,37 +474,32 @@ impl AvroValidator {
                     if !default.is_null() {
                         return Err(SchemaError::Custom {
                             message: "Default value for null type must be null".to_string(),
-                            range: None,
+                            range: field_range,
                         });
                     }
                 }
                 PrimitiveType::Boolean => {
                     if !default.is_boolean() {
                         return Err(SchemaError::Custom {
-                            message: "Default value for boolean type must be true or false".to_string(),
-                            range: None,
+                            message: "Default value for boolean type must be true or false"
+                                .to_string(),
+                            range: field_range,
                         });
                     }
                 }
                 PrimitiveType::Int | PrimitiveType::Long => {
                     if !default.is_number() {
                         return Err(SchemaError::Custom {
-                            message: format!(
-                                "Default value for {:?} type must be a number",
-                                prim
-                            ),
-                            range: None,
+                            message: format!("Default value for {:?} type must be a number", prim),
+                            range: field_range,
                         });
                     }
                 }
                 PrimitiveType::Float | PrimitiveType::Double => {
                     if !default.is_number() {
                         return Err(SchemaError::Custom {
-                            message: format!(
-                                "Default value for {:?} type must be a number",
-                                prim
-                            ),
-                            range: None,
+                            message: format!("Default value for {:?} type must be a number", prim),
+                            range: field_range,
                         });
                     }
                 }
@@ -488,7 +507,7 @@ impl AvroValidator {
                     if !default.is_string() {
                         return Err(SchemaError::Custom {
                             message: "Default value for string type must be a string".to_string(),
-                            range: None,
+                            range: field_range,
                         });
                     }
                 }
@@ -497,7 +516,7 @@ impl AvroValidator {
                     if !default.is_string() {
                         return Err(SchemaError::Custom {
                             message: "Default value for bytes type must be a string".to_string(),
-                            range: None,
+                            range: field_range,
                         });
                     }
                 }
@@ -510,15 +529,16 @@ impl AvroValidator {
                         if !default.is_null() {
                             return Err(SchemaError::Custom {
                                 message: "Default value for null type must be null".to_string(),
-                                range: None,
+                                range: field_range,
                             });
                         }
                     }
                     PrimitiveType::Boolean => {
                         if !default.is_boolean() {
                             return Err(SchemaError::Custom {
-                                message: "Default value for boolean type must be true or false".to_string(),
-                                range: None,
+                                message: "Default value for boolean type must be true or false"
+                                    .to_string(),
+                                range: field_range,
                             });
                         }
                     }
@@ -529,7 +549,7 @@ impl AvroValidator {
                                     "Default value for {:?} type must be a number",
                                     prim_obj.primitive_type
                                 ),
-                                range: None,
+                                range: field_range,
                             });
                         }
                     }
@@ -540,23 +560,25 @@ impl AvroValidator {
                                     "Default value for {:?} type must be a number",
                                     prim_obj.primitive_type
                                 ),
-                                range: None,
+                                range: field_range,
                             });
                         }
                     }
                     PrimitiveType::String => {
                         if !default.is_string() {
                             return Err(SchemaError::Custom {
-                                message: "Default value for string type must be a string".to_string(),
-                                range: None,
+                                message: "Default value for string type must be a string"
+                                    .to_string(),
+                                range: field_range,
                             });
                         }
                     }
                     PrimitiveType::Bytes => {
                         if !default.is_string() {
                             return Err(SchemaError::Custom {
-                                message: "Default value for bytes type must be a string".to_string(),
-                                range: None,
+                                message: "Default value for bytes type must be a string"
+                                    .to_string(),
+                                range: field_range,
                             });
                         }
                     }
@@ -566,7 +588,7 @@ impl AvroValidator {
                 if !default.is_object() {
                     return Err(SchemaError::Custom {
                         message: "Default value for record type must be an object".to_string(),
-                        range: None,
+                        range: field_range,
                     });
                 }
             }
@@ -574,17 +596,14 @@ impl AvroValidator {
                 if let Value::String(s) = default {
                     if !enum_schema.symbols.contains(s) {
                         return Err(SchemaError::Custom {
-                            message: format!(
-                                "Default value '{}' is not a valid enum symbol",
-                                s
-                            ),
-                            range: None,
+                            message: format!("Default value '{}' is not a valid enum symbol", s),
+                            range: field_range,
                         });
                     }
                 } else {
                     return Err(SchemaError::Custom {
                         message: "Default value for enum type must be a string".to_string(),
-                        range: None,
+                        range: field_range,
                     });
                 }
             }
@@ -592,7 +611,7 @@ impl AvroValidator {
                 if !default.is_array() {
                     return Err(SchemaError::Custom {
                         message: "Default value for array type must be an array".to_string(),
-                        range: None,
+                        range: field_range,
                     });
                 }
             }
@@ -600,7 +619,7 @@ impl AvroValidator {
                 if !default.is_object() {
                     return Err(SchemaError::Custom {
                         message: "Default value for map type must be an object".to_string(),
-                        range: None,
+                        range: field_range,
                     });
                 }
             }
@@ -609,25 +628,25 @@ impl AvroValidator {
                 if !default.is_string() {
                     return Err(SchemaError::Custom {
                         message: "Default value for fixed type must be a string".to_string(),
-                        range: None,
+                        range: field_range,
                     });
                 }
             }
             AvroType::Union(types) => {
                 // Default value must match the FIRST type in the union (per Avro spec)
                 if let Some(first_type) = types.first() {
-                    self.validate_default_value(default, first_type, named_types)?;
+                    self.validate_default_value(default, first_type, named_types, field_range)?;
                 } else {
                     return Err(SchemaError::Custom {
                         message: "Union must have at least one type".to_string(),
-                        range: None,
+                        range: field_range,
                     });
                 }
             }
             AvroType::TypeRef(type_ref) => {
                 // Resolve the reference and validate against the actual type
                 if let Some(resolved_type) = named_types.get(&type_ref.name) {
-                    self.validate_default_value(default, resolved_type, named_types)?;
+                    self.validate_default_value(default, resolved_type, named_types, field_range)?;
                 }
                 // If type not found, it will be caught by type reference validation
             }
@@ -707,6 +726,7 @@ fn fix_invalid_namespace(namespace: &str) -> String {
     }
 }
 
+/// Calculate Levenshtein distance between two strings
 impl Default for AvroValidator {
     fn default() -> Self {
         Self::new()

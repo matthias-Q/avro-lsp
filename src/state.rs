@@ -418,12 +418,7 @@ impl ServerState {
 
         let doc = doc.unwrap();
 
-        if doc.schema.is_none() {
-            tracing::warn!("Schema not parsed for {}", uri);
-            return None;
-        }
-
-        let schema = doc.schema.as_ref().unwrap();
+        let schema = doc.schema.as_ref();
 
         // Use diagnostics from context if provided, otherwise use stored diagnostics
         // Some editors don't pass diagnostics in the code action context
@@ -437,19 +432,23 @@ impl ServerState {
             &context_diagnostics
         };
 
-        // Get refactoring code actions (position-based)
-        let mut actions = crate::handlers::code_actions::get_code_actions(schema, uri, range);
-        tracing::info!("Refactoring actions: {}", actions.len());
-
         // Get quick fix code actions from diagnostics (diagnostic-based)
-        let quick_fixes = crate::handlers::code_actions::get_quick_fixes_from_diagnostics(
+        // Note: This works even when schema is None (for parse errors)
+        let mut actions = crate::handlers::code_actions::get_quick_fixes_from_diagnostics(
             schema,
             &doc.text,
             uri,
             diagnostics_to_use,
         );
-        tracing::info!("Quick fix actions: {}", quick_fixes.len());
-        actions.extend(quick_fixes);
+        tracing::info!("Quick fix actions: {}", actions.len());
+
+        // Get refactoring code actions (position-based) - only if schema is available
+        if let Some(schema) = schema {
+            let refactoring_actions =
+                crate::handlers::code_actions::get_code_actions(schema, uri, range);
+            tracing::info!("Refactoring actions: {}", refactoring_actions.len());
+            actions.extend(refactoring_actions);
+        }
 
         tracing::info!("Total actions: {}", actions.len());
 
