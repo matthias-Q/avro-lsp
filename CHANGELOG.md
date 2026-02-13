@@ -2,6 +2,24 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.1.2] - 2026-02-13
+
+### Bug Fixes
+
+- Comma tracking
+
+### Documentation
+
+- Add intellij instructions
+- Update build information
+
+### Miscellaneous Tasks
+
+- Update agents
+- Build for MAC
+- Formatting
+- *(release)* Release version v0.1.2
+
 ## [0.1.1] - 2026-02-13
 
 ### Features
