@@ -160,6 +160,19 @@ fn format_type_info(avro_type: &AvroType) -> String {
         AvroType::Primitive(prim) => {
             format!("**Primitive**: `{:?}`", prim)
         }
+        AvroType::PrimitiveObject(prim_obj) => {
+            let mut info = format!("**Primitive**: `{:?}`\n\n", prim_obj.primitive_type);
+            if let Some(logical_type) = &prim_obj.logical_type {
+                info.push_str(&format!("**Logical Type**: `{}`\n\n", logical_type));
+            }
+            if let Some(precision) = prim_obj.precision {
+                info.push_str(&format!("**Precision**: {}\n\n", precision));
+            }
+            if let Some(scale) = prim_obj.scale {
+                info.push_str(&format!("**Scale**: {}\n\n", scale));
+            }
+            info
+        }
         AvroType::TypeRef(type_ref) => {
             format!("**Type Reference**: `{}`", type_ref.name)
         }
@@ -170,6 +183,14 @@ fn format_type_info(avro_type: &AvroType) -> String {
 pub fn format_type_name(avro_type: &AvroType) -> String {
     match avro_type {
         AvroType::Primitive(prim) => format!("`{:?}`", prim).to_lowercase(),
+        AvroType::PrimitiveObject(prim_obj) => {
+            let base = format!("{:?}", prim_obj.primitive_type).to_lowercase();
+            if let Some(logical_type) = &prim_obj.logical_type {
+                format!("`{} ({})`", base, logical_type)
+            } else {
+                format!("`{}`", base)
+            }
+        }
         AvroType::Record(r) => format!("`{}`", r.name),
         AvroType::Enum(e) => format!("`{}`", e.name),
         AvroType::Fixed(f) => format!("`{}`", f.name),

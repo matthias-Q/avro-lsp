@@ -171,6 +171,183 @@ fn find_error_position_in_ast(error: &SchemaError, schema: &AvroSchema) -> Range
                     _ => None,
                 }
             }
+            SchemaError::InvalidNamespace(namespace) => {
+                tracing::debug!("Searching for InvalidNamespace: {}", namespace);
+                // Search for a type with this namespace
+                match avro_type {
+                    AvroType::Record(record) => {
+                        if record.namespace.as_ref() == Some(namespace) {
+                            tracing::debug!(
+                                "Found record with invalid namespace at {:?}",
+                                record.range
+                            );
+                            // Use the record's range as best approximation
+                            return record.range;
+                        }
+                        // Recurse into fields
+                        for field in &record.fields {
+                            if let Some(range) = search_type(&field.field_type, error) {
+                                return Some(range);
+                            }
+                        }
+                        None
+                    }
+                    AvroType::Enum(enum_schema) => {
+                        if enum_schema.namespace.as_ref() == Some(namespace) {
+                            tracing::debug!(
+                                "Found enum with invalid namespace at {:?}",
+                                enum_schema.range
+                            );
+                            return enum_schema.range;
+                        }
+                        None
+                    }
+                    AvroType::Fixed(fixed) => {
+                        if fixed.namespace.as_ref() == Some(namespace) {
+                            tracing::debug!(
+                                "Found fixed with invalid namespace at {:?}",
+                                fixed.range
+                            );
+                            return fixed.range;
+                        }
+                        None
+                    }
+                    AvroType::Array(array) => search_type(&array.items, error),
+                    AvroType::Map(map) => search_type(&map.values, error),
+                    AvroType::Union(types) => {
+                        for t in types {
+                            if let Some(range) = search_type(t, error) {
+                                return Some(range);
+                            }
+                        }
+                        None
+                    }
+                    _ => None,
+                }
+            }
+            SchemaError::DuplicateSymbol(symbol) => {
+                tracing::debug!("Searching for DuplicateSymbol: {}", symbol);
+                // Find the enum with this symbol
+                match avro_type {
+                    AvroType::Enum(enum_schema) => {
+                        if enum_schema.symbols.contains(symbol) {
+                            tracing::debug!(
+                                "Found enum with duplicate symbol at {:?}",
+                                enum_schema.range
+                            );
+                            return enum_schema.range;
+                        }
+                        None
+                    }
+                    AvroType::Record(record) => {
+                        for field in &record.fields {
+                            if let Some(range) = search_type(&field.field_type, error) {
+                                return Some(range);
+                            }
+                        }
+                        None
+                    }
+                    AvroType::Array(array) => search_type(&array.items, error),
+                    AvroType::Map(map) => search_type(&map.values, error),
+                    AvroType::Union(types) => {
+                        for t in types {
+                            if let Some(range) = search_type(t, error) {
+                                return Some(range);
+                            }
+                        }
+                        None
+                    }
+                    _ => None,
+                }
+            }
+            SchemaError::Custom(msg) => {
+                tracing::debug!("Searching for Custom error: {}", msg);
+                // Try to extract relevant info from custom messages
+                // Handle common patterns like field validation errors, decimal errors, etc.
+
+                // For "Record must have at least one field"
+                if msg.contains("Record must have at least one field") {
+                    if let AvroType::Record(record) = avro_type {
+                        return record.range;
+                    }
+                }
+
+                // For "Enum must have at least one symbol"
+                if msg.contains("Enum must have at least one symbol") {
+                    if let AvroType::Enum(enum_schema) = avro_type {
+                        return enum_schema.range;
+                    }
+                }
+
+                // For "Fixed size must be greater than 0"
+                if msg.contains("Fixed size must be greater than 0") {
+                    if let AvroType::Fixed(fixed) = avro_type {
+                        return fixed.range;
+                    }
+                }
+
+                // For decimal/duration logical type errors
+                if msg.contains("Decimal") || msg.contains("precision") || msg.contains("scale") {
+                    match avro_type {
+                        AvroType::Fixed(fixed) if fixed.logical_type.is_some() => {
+                            return fixed.range;
+                        }
+                        AvroType::PrimitiveObject(prim) if prim.logical_type.is_some() => {
+                            return prim.range;
+                        }
+                        _ => {}
+                    }
+                }
+
+                if msg.contains("Duration") {
+                    if let AvroType::Fixed(fixed) = avro_type {
+                        if fixed.logical_type == Some("duration".to_string()) {
+                            return fixed.range;
+                        }
+                    }
+                }
+
+                // For "Invalid logical type" errors
+                if msg.contains("Invalid logical type") {
+                    match avro_type {
+                        AvroType::PrimitiveObject(prim) => {
+                            return prim.range;
+                        }
+                        _ => {}
+                    }
+                }
+
+                // Recurse for nested structures
+                match avro_type {
+                    AvroType::Record(record) => {
+                        // Check if error is about this record
+                        if let Some(range) = record.range {
+                            // Could be about this record
+                            if msg.contains("field") && record.fields.is_empty() {
+                                return Some(range);
+                            }
+                        }
+                        // Recurse into fields
+                        for field in &record.fields {
+                            if let Some(range) = search_type(&field.field_type, error) {
+                                return Some(range);
+                            }
+                        }
+                        None
+                    }
+                    AvroType::Array(array) => search_type(&array.items, error),
+                    AvroType::Map(map) => search_type(&map.values, error),
+                    AvroType::Union(types) => {
+                        for t in types {
+                            if let Some(range) = search_type(t, error) {
+                                return Some(range);
+                            }
+                        }
+                        None
+                    }
+                    _ => None,
+                }
+            }
             SchemaError::UnknownTypeReference(type_name) => {
                 tracing::debug!("Searching for UnknownTypeReference: {}", type_name);
                 // Search for TypeRef with this name
@@ -510,5 +687,186 @@ mod tests {
             .iter()
             .any(|d| d.message.contains("name") || d.message.contains("Invalid"));
         assert!(has_name_error, "Should report invalid name format");
+    }
+
+    #[test]
+    fn test_invalid_namespace_positioning() {
+        let text = r#"{
+  "type": "record",
+  "name": "Test",
+  "namespace": "123.invalid",
+  "fields": [
+    {"name": "value", "type": "string"}
+  ]
+}"#;
+
+        let diagnostics = parse_and_validate(text);
+
+        assert!(
+            !diagnostics.is_empty(),
+            "Should have diagnostics for invalid namespace"
+        );
+
+        let diag = &diagnostics[0];
+
+        // The error should be positioned in the record, not at (0,0)
+        assert!(
+            diag.range.start.line > 0 || diag.range.start.character > 0,
+            "Error should not be at position (0,0), got: {:?}",
+            diag.range.start
+        );
+
+        assert!(
+            diag.message.contains("namespace") || diag.message.contains("Namespace"),
+            "Message should mention namespace, got: '{}'",
+            diag.message
+        );
+    }
+
+    #[test]
+    fn test_logical_type_error_positioning() {
+        let text = r#"{
+  "type": "record",
+  "name": "Test",
+  "fields": [
+    {
+      "name": "bad_uuid",
+      "type": {
+        "type": "int",
+        "logicalType": "uuid"
+      }
+    }
+  ]
+}"#;
+
+        let diagnostics = parse_and_validate(text);
+
+        assert!(
+            !diagnostics.is_empty(),
+            "Should have diagnostics for invalid logical type"
+        );
+
+        let diag = &diagnostics[0];
+
+        // The error should be positioned at the primitive object with logical type (line 7-10)
+        assert!(
+            diag.range.start.line >= 6 && diag.range.start.line <= 10,
+            "Error should be positioned at the logical type definition (lines 7-10), got line: {}",
+            diag.range.start.line
+        );
+
+        assert!(
+            diag.message.contains("logical type") || diag.message.contains("uuid"),
+            "Message should mention logical type error, got: '{}'",
+            diag.message
+        );
+    }
+
+    #[test]
+    fn test_decimal_missing_precision_positioning() {
+        let text = r#"{
+  "type": "record",
+  "name": "Test",
+  "fields": [
+    {
+      "name": "price",
+      "type": {
+        "type": "bytes",
+        "logicalType": "decimal"
+      }
+    }
+  ]
+}"#;
+
+        let diagnostics = parse_and_validate(text);
+
+        assert!(
+            !diagnostics.is_empty(),
+            "Should have diagnostics for missing precision"
+        );
+
+        let diag = &diagnostics[0];
+
+        // The error should be positioned at the decimal definition
+        assert!(
+            diag.range.start.line >= 6 && diag.range.start.line <= 10,
+            "Error should be positioned at the decimal definition, got line: {}",
+            diag.range.start.line
+        );
+
+        assert!(
+            diag.message.contains("precision"),
+            "Message should mention precision, got: '{}'",
+            diag.message
+        );
+    }
+
+    #[test]
+    fn test_duplicate_symbols_positioning() {
+        let text = r#"{
+  "type": "enum",
+  "name": "Status",
+  "symbols": ["ACTIVE", "INACTIVE", "ACTIVE"]
+}"#;
+
+        let diagnostics = parse_and_validate(text);
+
+        assert!(
+            !diagnostics.is_empty(),
+            "Should have diagnostics for duplicate symbols"
+        );
+
+        let diag = &diagnostics[0];
+
+        // The error should be positioned at the enum (line 1-4), not at (0,0)
+        assert!(
+            diag.range.start.line >= 0 && diag.range.start.line <= 4,
+            "Error should be positioned at the enum definition, got line: {}",
+            diag.range.start.line
+        );
+    }
+
+    #[test]
+    fn test_all_positioning_not_default() {
+        // Test that various error types don't default to (0,0)
+        let test_cases = vec![
+            (
+                r#"{"type": "record", "name": "123Bad", "fields": []}"#,
+                "invalid name",
+            ),
+            (
+                r#"{"type": "record", "name": "Test", "namespace": "123.bad", "fields": []}"#,
+                "invalid namespace",
+            ),
+            (
+                r#"{"type": "enum", "name": "E", "symbols": ["A", "A"]}"#,
+                "duplicate symbols",
+            ),
+        ];
+
+        for (text, description) in test_cases {
+            let diagnostics = parse_and_validate(text);
+
+            assert!(
+                !diagnostics.is_empty(),
+                "Should have diagnostics for {}",
+                description
+            );
+
+            let diag = &diagnostics[0];
+
+            // None of these should be at the default (0,0) position
+            // They should at least have a non-zero line or character
+            let is_meaningful_position = diag.range.start.line > 0
+                || diag.range.start.character > 0
+                || diag.range.end.line > 0
+                || diag.range.end.character > 1; // End character > 1 means it's not the default
+
+            assert!(
+                is_meaningful_position,
+                "Error for '{}' should not be at default position (0,0)-(0,1), got: {:?}",
+                description, diag.range
+            );
+        }
     }
 }

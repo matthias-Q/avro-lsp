@@ -65,6 +65,9 @@ impl AvroValidator {
     ) -> Result<()> {
         match avro_type {
             AvroType::Primitive(_) => Ok(()),
+            AvroType::PrimitiveObject(primitive) => {
+                self.validate_primitive_with_logical_type(primitive)
+            }
             AvroType::Record(record) => {
                 self.validate_record_with_resolver(record, named_types, resolver)
             }
@@ -232,6 +235,57 @@ impl AvroValidator {
         Ok(())
     }
 
+    fn validate_primitive_with_logical_type(&self, primitive: &PrimitiveSchema) -> Result<()> {
+        if let Some(logical_type) = &primitive.logical_type {
+            // Validate logical type based on primitive type
+            match (primitive.primitive_type, logical_type.as_str()) {
+                // int can have: date, time-millis
+                (PrimitiveType::Int, "date") => Ok(()),
+                (PrimitiveType::Int, "time-millis") => Ok(()),
+
+                // long can have: time-micros, timestamp-millis, timestamp-micros,
+                // local-timestamp-millis, local-timestamp-micros
+                (PrimitiveType::Long, "time-micros") => Ok(()),
+                (PrimitiveType::Long, "timestamp-millis") => Ok(()),
+                (PrimitiveType::Long, "timestamp-micros") => Ok(()),
+                (PrimitiveType::Long, "local-timestamp-millis") => Ok(()),
+                (PrimitiveType::Long, "local-timestamp-micros") => Ok(()),
+
+                // string can have: uuid
+                (PrimitiveType::String, "uuid") => Ok(()),
+
+                // bytes can have: decimal (with precision/scale)
+                (PrimitiveType::Bytes, "decimal") => {
+                    // Decimal requires precision
+                    if primitive.precision.is_none() {
+                        return Err(SchemaError::Custom(
+                            "Decimal logical type requires 'precision' attribute".to_string(),
+                        ));
+                    }
+                    // Scale is optional but must be <= precision if present
+                    if let (Some(precision), Some(scale)) = (primitive.precision, primitive.scale)
+                        && scale > precision
+                    {
+                        return Err(SchemaError::Custom(format!(
+                            "Decimal scale ({}) cannot be greater than precision ({})",
+                            scale, precision
+                        )));
+                    }
+                    Ok(())
+                }
+
+                // Invalid combinations
+                _ => Err(SchemaError::Custom(format!(
+                    "Invalid logical type '{}' for primitive type '{:?}'",
+                    logical_type, primitive.primitive_type
+                ))),
+            }
+        } else {
+            // No logical type is valid
+            Ok(())
+        }
+    }
+
     #[allow(dead_code)] // Internal helper, kept for backward compatibility
     fn validate_union(
         &self,
@@ -382,6 +436,56 @@ impl AvroValidator {
                     }
                 }
             },
+            AvroType::PrimitiveObject(prim_obj) => {
+                // PrimitiveObject with logical types validate the same as their base primitive type
+                // The logical type doesn't change the default value requirements
+                match prim_obj.primitive_type {
+                    PrimitiveType::Null => {
+                        if !default.is_null() {
+                            return Err(SchemaError::Custom(
+                                "Default value for null type must be null".to_string(),
+                            ));
+                        }
+                    }
+                    PrimitiveType::Boolean => {
+                        if !default.is_boolean() {
+                            return Err(SchemaError::Custom(
+                                "Default value for boolean type must be true or false".to_string(),
+                            ));
+                        }
+                    }
+                    PrimitiveType::Int | PrimitiveType::Long => {
+                        if !default.is_number() {
+                            return Err(SchemaError::Custom(format!(
+                                "Default value for {:?} type must be a number",
+                                prim_obj.primitive_type
+                            )));
+                        }
+                    }
+                    PrimitiveType::Float | PrimitiveType::Double => {
+                        if !default.is_number() {
+                            return Err(SchemaError::Custom(format!(
+                                "Default value for {:?} type must be a number",
+                                prim_obj.primitive_type
+                            )));
+                        }
+                    }
+                    PrimitiveType::String => {
+                        if !default.is_string() {
+                            return Err(SchemaError::Custom(
+                                "Default value for string type must be a string".to_string(),
+                            ));
+                        }
+                    }
+                    PrimitiveType::Bytes => {
+                        if !default.is_string() {
+                            return Err(SchemaError::Custom(
+                                "Default value for bytes type must be a string".to_string(),
+                            ));
+                        }
+                    }
+                }
+            }
             AvroType::Record(_) => {
                 if !default.is_object() {
                     return Err(SchemaError::Custom(
@@ -451,6 +555,7 @@ impl AvroValidator {
     fn type_signature(&self, avro_type: &AvroType) -> String {
         match avro_type {
             AvroType::Primitive(p) => format!("{:?}", p),
+            AvroType::PrimitiveObject(p) => format!("{:?}", p.primitive_type),
             AvroType::Record(r) => format!("record:{}", r.name),
             AvroType::Enum(e) => format!("enum:{}", e.name),
             AvroType::Fixed(f) => format!("fixed:{}", f.name),
@@ -529,6 +634,149 @@ mod tests {
         match result {
             Ok(_) => {} // This is what we expect
             Err(e) => panic!("Validation should pass for valid union, got error: {:?}", e),
+        }
+    }
+
+    #[test]
+    fn test_validate_logical_type_date() {
+        use crate::schema::parser::AvroParser;
+
+        let mut parser = AvroParser::new();
+        let json = r#"{"type": "int", "logicalType": "date"}"#;
+        let schema = parser.parse(json).unwrap();
+
+        let validator = AvroValidator::new();
+        assert!(validator.validate(&schema).is_ok());
+    }
+
+    #[test]
+    fn test_validate_logical_type_timestamp_millis() {
+        use crate::schema::parser::AvroParser;
+
+        let mut parser = AvroParser::new();
+        let json = r#"{"type": "long", "logicalType": "timestamp-millis"}"#;
+        let schema = parser.parse(json).unwrap();
+
+        let validator = AvroValidator::new();
+        assert!(validator.validate(&schema).is_ok());
+    }
+
+    #[test]
+    fn test_validate_logical_type_uuid() {
+        use crate::schema::parser::AvroParser;
+
+        let mut parser = AvroParser::new();
+        let json = r#"{"type": "string", "logicalType": "uuid"}"#;
+        let schema = parser.parse(json).unwrap();
+
+        let validator = AvroValidator::new();
+        assert!(validator.validate(&schema).is_ok());
+    }
+
+    #[test]
+    fn test_validate_decimal_bytes_with_precision() {
+        use crate::schema::parser::AvroParser;
+
+        let mut parser = AvroParser::new();
+        let json = r#"{"type": "bytes", "logicalType": "decimal", "precision": 10, "scale": 2}"#;
+        let schema = parser.parse(json).unwrap();
+
+        let validator = AvroValidator::new();
+        assert!(validator.validate(&schema).is_ok());
+    }
+
+    #[test]
+    fn test_validate_decimal_bytes_no_precision() {
+        use crate::schema::parser::AvroParser;
+
+        let mut parser = AvroParser::new();
+        let json = r#"{"type": "bytes", "logicalType": "decimal"}"#;
+        let schema = parser.parse(json).unwrap();
+
+        let validator = AvroValidator::new();
+        let result = validator.validate(&schema);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("precision"));
+    }
+
+    #[test]
+    fn test_validate_decimal_scale_exceeds_precision() {
+        use crate::schema::parser::AvroParser;
+
+        let mut parser = AvroParser::new();
+        let json = r#"{"type": "bytes", "logicalType": "decimal", "precision": 5, "scale": 10}"#;
+        let schema = parser.parse(json).unwrap();
+
+        let validator = AvroValidator::new();
+        let result = validator.validate(&schema);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("scale"));
+    }
+
+    #[test]
+    fn test_validate_invalid_logical_type_combination() {
+        use crate::schema::parser::AvroParser;
+
+        let mut parser = AvroParser::new();
+        // uuid should only be on string, not int
+        let json = r#"{"type": "int", "logicalType": "uuid"}"#;
+        let schema = parser.parse(json).unwrap();
+
+        let validator = AvroValidator::new();
+        let result = validator.validate(&schema);
+        assert!(result.is_err());
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("Invalid logical type")
+        );
+    }
+
+    #[test]
+    fn test_validate_all_int_logical_types() {
+        use crate::schema::parser::AvroParser;
+
+        let validator = AvroValidator::new();
+
+        // date
+        let mut parser = AvroParser::new();
+        let schema = parser
+            .parse(r#"{"type": "int", "logicalType": "date"}"#)
+            .unwrap();
+        assert!(validator.validate(&schema).is_ok());
+
+        // time-millis
+        let mut parser = AvroParser::new();
+        let schema = parser
+            .parse(r#"{"type": "int", "logicalType": "time-millis"}"#)
+            .unwrap();
+        assert!(validator.validate(&schema).is_ok());
+    }
+
+    #[test]
+    fn test_validate_all_long_logical_types() {
+        use crate::schema::parser::AvroParser;
+
+        let validator = AvroValidator::new();
+
+        let logical_types = vec![
+            "time-micros",
+            "timestamp-millis",
+            "timestamp-micros",
+            "local-timestamp-millis",
+            "local-timestamp-micros",
+        ];
+
+        for logical_type in logical_types {
+            let mut parser = AvroParser::new();
+            let json = format!(r#"{{"type": "long", "logicalType": "{}"}}"#, logical_type);
+            let schema = parser.parse(&json).unwrap();
+            assert!(
+                validator.validate(&schema).is_ok(),
+                "Failed for logical type: {}",
+                logical_type
+            );
         }
     }
 }

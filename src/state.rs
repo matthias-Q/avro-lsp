@@ -152,8 +152,8 @@ fn find_node_in_type<'a>(
             }
             None
         }
-        // Primitives and TypeRefs don't have position info
-        AvroType::Primitive(_) | AvroType::TypeRef(_) => None,
+        // Primitives, PrimitiveObjects, and TypeRefs don't have position info
+        AvroType::Primitive(_) | AvroType::PrimitiveObject(_) | AvroType::TypeRef(_) => None,
     }
 }
 
@@ -405,13 +405,29 @@ impl ServerState {
         &self,
         uri: &Url,
         range: Range,
-        _diagnostics: Vec<Diagnostic>,
+        diagnostics: Vec<Diagnostic>,
     ) -> Option<Vec<async_lsp::lsp_types::CodeAction>> {
         let state = self.inner.read().await;
         let doc = state.documents.get(uri)?;
         let schema = doc.schema.as_ref()?;
 
-        crate::handlers::code_actions::get_code_actions(schema, uri, range)
+        // Get refactoring code actions
+        let mut actions = crate::handlers::code_actions::get_code_actions(schema, uri, range);
+
+        // Get quick fix code actions from diagnostics
+        let quick_fixes = crate::handlers::code_actions::get_quick_fixes_from_diagnostics(
+            schema,
+            &doc.text,
+            uri,
+            &diagnostics,
+        );
+        actions.extend(quick_fixes);
+
+        if actions.is_empty() {
+            None
+        } else {
+            Some(actions)
+        }
     }
 
     /// Rename a symbol (record, enum, fixed, or field name)

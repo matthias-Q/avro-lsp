@@ -64,7 +64,15 @@ impl AvroParser {
                     "map" => self.parse_map(obj),
                     "fixed" => self.parse_fixed(obj, value.range()),
                     prim if PrimitiveType::from_str(prim).is_some() => {
-                        Ok(AvroType::Primitive(PrimitiveType::from_str(prim).unwrap()))
+                        // Check if this primitive has logicalType or precision/scale attributes
+                        if obj.contains_key("logicalType")
+                            || obj.contains_key("precision")
+                            || obj.contains_key("scale")
+                        {
+                            self.parse_primitive_object(obj, value.range())
+                        } else {
+                            Ok(AvroType::Primitive(PrimitiveType::from_str(prim).unwrap()))
+                        }
                     }
                     _ => Err(SchemaError::InvalidPrimitiveType(type_name.to_string())),
                 }
@@ -298,6 +306,38 @@ impl AvroParser {
         self.named_types.insert(name, avro_type.clone());
 
         Ok(avro_type)
+    }
+
+    fn parse_primitive_object(
+        &mut self,
+        obj: &HashMap<String, JsonValue>,
+        range: async_lsp::lsp_types::Range,
+    ) -> Result<AvroType> {
+        let type_name = self.get_required_string(obj, "type")?;
+
+        // Verify it's actually a primitive type
+        let primitive_type = PrimitiveType::from_str(&type_name)
+            .ok_or_else(|| SchemaError::InvalidPrimitiveType(type_name.clone()))?;
+
+        // Parse logical type and attributes
+        let logical_type = self.get_optional_string(obj, "logicalType");
+        let precision = obj.get("precision").and_then(|v| match v {
+            JsonValue::Number(n, _) => Some(*n as usize),
+            _ => None,
+        });
+        let scale = obj.get("scale").and_then(|v| match v {
+            JsonValue::Number(n, _) => Some(*n as usize),
+            _ => None,
+        });
+
+        Ok(AvroType::PrimitiveObject(PrimitiveSchema {
+            type_name,
+            primitive_type,
+            logical_type,
+            precision,
+            scale,
+            range: Some(range),
+        }))
     }
 
     fn get_required_string(&self, obj: &HashMap<String, JsonValue>, key: &str) -> Result<String> {

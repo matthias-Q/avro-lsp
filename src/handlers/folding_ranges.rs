@@ -77,8 +77,8 @@ fn collect_folding_ranges(avro_type: &AvroType, ranges: &mut Vec<FoldingRange>) 
                 collect_folding_ranges(avro_type, ranges);
             }
         }
-        // Primitives and TypeRefs don't have foldable content
-        AvroType::Primitive(_) | AvroType::TypeRef(_) => {}
+        // Primitives, PrimitiveObjects, and TypeRefs don't have foldable content
+        AvroType::Primitive(_) | AvroType::PrimitiveObject(_) | AvroType::TypeRef(_) => {}
     }
 }
 

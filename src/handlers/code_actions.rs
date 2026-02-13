@@ -1,13 +1,17 @@
-use async_lsp::lsp_types::{CodeAction, Position, Range, Url};
+use async_lsp::lsp_types::{CodeAction, Diagnostic, Position, Range, Url};
+use regex::Regex;
 
 use crate::schema::{AvroSchema, AvroType, Field};
 use crate::schema::{EnumSchema, RecordSchema};
 use crate::state::{AstNode, find_node_at_position};
 
 /// Get code actions available at the given range
-pub fn get_code_actions(schema: &AvroSchema, uri: &Url, range: Range) -> Option<Vec<CodeAction>> {
+pub fn get_code_actions(schema: &AvroSchema, uri: &Url, range: Range) -> Vec<CodeAction> {
     // Use AST traversal to find the node at cursor position
-    let node = find_node_at_position(schema, range.start)?;
+    let node = match find_node_at_position(schema, range.start) {
+        Some(n) => n,
+        None => return Vec::new(),
+    };
 
     let mut actions = Vec::new();
 
@@ -84,11 +88,7 @@ pub fn get_code_actions(schema: &AvroSchema, uri: &Url, range: Range) -> Option<
         }
     }
 
-    if actions.is_empty() {
-        None
-    } else {
-        Some(actions)
-    }
+    actions
 }
 
 fn is_union(avro_type: &AvroType) -> bool {
@@ -546,6 +546,486 @@ fn get_default_for_type(avro_type: &AvroType) -> Option<String> {
     }
 }
 
+/// Get quick fix code actions from diagnostics
+pub fn get_quick_fixes_from_diagnostics(
+    schema: &AvroSchema,
+    text: &str,
+    uri: &Url,
+    diagnostics: &[Diagnostic],
+) -> Vec<CodeAction> {
+    let mut actions = Vec::new();
+
+    for diagnostic in diagnostics {
+        // Try to generate fixes based on the error message
+        if let Some(msg) = diagnostic.message.strip_prefix("Invalid name '") {
+            if let Some(name_end) = msg.find('\'') {
+                let invalid_name = &msg[..name_end];
+                if let Some(fix) = create_fix_invalid_name(uri, schema, diagnostic, invalid_name) {
+                    actions.push(fix);
+                }
+            }
+        } else if let Some(msg) = diagnostic.message.strip_prefix("Invalid namespace '") {
+            if let Some(ns_end) = msg.find('\'') {
+                let invalid_namespace = &msg[..ns_end];
+                if let Some(fix) =
+                    create_fix_invalid_namespace(uri, schema, diagnostic, invalid_namespace)
+                {
+                    actions.push(fix);
+                }
+            }
+        } else if diagnostic.message.contains("logical type")
+            && diagnostic.message.contains("requires")
+        {
+            // e.g., "Invalid logical type 'uuid' for type int - requires string"
+            if let Some(fix) = create_fix_logical_type(uri, schema, text, diagnostic) {
+                actions.push(fix);
+            }
+        } else if let Some(msg) = diagnostic.message.strip_prefix("Duplicate symbol '") {
+            if let Some(symbol_end) = msg.find('\'') {
+                let duplicate_symbol = &msg[..symbol_end];
+                if let Some(fix) =
+                    create_fix_duplicate_symbol(uri, text, diagnostic, duplicate_symbol)
+                {
+                    actions.push(fix);
+                }
+            }
+        }
+    }
+
+    actions
+}
+
+/// Create a quick fix for invalid name errors
+fn create_fix_invalid_name(
+    uri: &Url,
+    schema: &AvroSchema,
+    diagnostic: &Diagnostic,
+    invalid_name: &str,
+) -> Option<CodeAction> {
+    use async_lsp::lsp_types::{CodeActionKind, TextEdit, WorkspaceEdit};
+    use std::collections::HashMap;
+
+    // Generate a valid name by:
+    // 1. If starts with digit, prepend underscore
+    // 2. Replace invalid characters with underscores
+    let fixed_name = fix_invalid_name(invalid_name);
+
+    // Find the name in the schema to get the exact position
+    let name_range = find_name_range_in_schema(schema, invalid_name, diagnostic.range)?;
+
+    let mut changes = HashMap::new();
+    changes.insert(
+        uri.clone(),
+        vec![TextEdit {
+            range: name_range,
+            new_text: format!("\"{}\"", fixed_name),
+        }],
+    );
+
+    Some(CodeAction {
+        title: format!("Fix invalid name: '{}' → '{}'", invalid_name, fixed_name),
+        kind: Some(CodeActionKind::QUICKFIX),
+        diagnostics: Some(vec![diagnostic.clone()]),
+        edit: Some(WorkspaceEdit {
+            changes: Some(changes),
+            document_changes: None,
+            change_annotations: None,
+        }),
+        command: None,
+        is_preferred: Some(true),
+        disabled: None,
+        data: None,
+    })
+}
+
+/// Create a quick fix for invalid namespace errors
+fn create_fix_invalid_namespace(
+    uri: &Url,
+    schema: &AvroSchema,
+    diagnostic: &Diagnostic,
+    invalid_namespace: &str,
+) -> Option<CodeAction> {
+    use async_lsp::lsp_types::{CodeActionKind, TextEdit, WorkspaceEdit};
+    use std::collections::HashMap;
+
+    // Fix namespace by filtering out invalid segments
+    let fixed_namespace = fix_invalid_namespace(invalid_namespace);
+
+    if fixed_namespace.is_empty() {
+        // Offer to remove the namespace field entirely
+        return create_remove_namespace_action(uri, schema, diagnostic);
+    }
+
+    // Find the namespace value in the schema
+    let namespace_range = find_namespace_range_in_schema(schema, diagnostic.range)?;
+
+    let mut changes = HashMap::new();
+    changes.insert(
+        uri.clone(),
+        vec![TextEdit {
+            range: namespace_range,
+            new_text: format!("\"{}\"", fixed_namespace),
+        }],
+    );
+
+    Some(CodeAction {
+        title: format!(
+            "Fix invalid namespace: '{}' → '{}'",
+            invalid_namespace, fixed_namespace
+        ),
+        kind: Some(CodeActionKind::QUICKFIX),
+        diagnostics: Some(vec![diagnostic.clone()]),
+        edit: Some(WorkspaceEdit {
+            changes: Some(changes),
+            document_changes: None,
+            change_annotations: None,
+        }),
+        command: None,
+        is_preferred: Some(true),
+        disabled: None,
+        data: None,
+    })
+}
+
+/// Create action to remove invalid namespace field
+fn create_remove_namespace_action(
+    uri: &Url,
+    _schema: &AvroSchema,
+    diagnostic: &Diagnostic,
+) -> Option<CodeAction> {
+    use async_lsp::lsp_types::{CodeActionKind, TextEdit, WorkspaceEdit};
+    use std::collections::HashMap;
+
+    // For now, just suggest to fix the namespace manually
+    // A more sophisticated implementation would find and remove the entire field
+    let mut changes = HashMap::new();
+    changes.insert(
+        uri.clone(),
+        vec![TextEdit {
+            range: diagnostic.range,
+            new_text: "\"valid_namespace\"".to_string(),
+        }],
+    );
+
+    Some(CodeAction {
+        title: "Replace with valid namespace placeholder".to_string(),
+        kind: Some(CodeActionKind::QUICKFIX),
+        diagnostics: Some(vec![diagnostic.clone()]),
+        edit: Some(WorkspaceEdit {
+            changes: Some(changes),
+            document_changes: None,
+            change_annotations: None,
+        }),
+        command: None,
+        is_preferred: Some(false),
+        disabled: None,
+        data: None,
+    })
+}
+
+/// Create a quick fix for logical type errors
+fn create_fix_logical_type(
+    uri: &Url,
+    _schema: &AvroSchema,
+    text: &str,
+    diagnostic: &Diagnostic,
+) -> Option<CodeAction> {
+    use async_lsp::lsp_types::{CodeActionKind, TextEdit, WorkspaceEdit};
+    use std::collections::HashMap;
+
+    // Parse the error message to extract the required type
+    // e.g., "Invalid logical type 'uuid' for type int - requires string"
+    let msg = &diagnostic.message;
+    let required_type = if msg.contains("requires string") {
+        "string"
+    } else if msg.contains("requires int") {
+        "int"
+    } else if msg.contains("requires long") {
+        "long"
+    } else if msg.contains("requires bytes") {
+        "bytes"
+    } else if msg.contains("requires fixed") {
+        return None; // Fixed types are more complex
+    } else {
+        return None;
+    };
+
+    // Find the type field in the object
+    let type_range = find_primitive_type_range(text, diagnostic.range)?;
+
+    let mut changes = HashMap::new();
+    changes.insert(
+        uri.clone(),
+        vec![TextEdit {
+            range: type_range,
+            new_text: format!("\"{}\"", required_type),
+        }],
+    );
+
+    Some(CodeAction {
+        title: format!("Change base type to '{}'", required_type),
+        kind: Some(CodeActionKind::QUICKFIX),
+        diagnostics: Some(vec![diagnostic.clone()]),
+        edit: Some(WorkspaceEdit {
+            changes: Some(changes),
+            document_changes: None,
+            change_annotations: None,
+        }),
+        command: None,
+        is_preferred: Some(true),
+        disabled: None,
+        data: None,
+    })
+}
+
+/// Create a quick fix for duplicate symbols
+fn create_fix_duplicate_symbol(
+    uri: &Url,
+    text: &str,
+    diagnostic: &Diagnostic,
+    duplicate_symbol: &str,
+) -> Option<CodeAction> {
+    use async_lsp::lsp_types::{CodeActionKind, TextEdit, WorkspaceEdit};
+    use std::collections::HashMap;
+
+    // Find the duplicate symbol in the symbols array and remove it
+    let (_first_pos, second_pos) = find_duplicate_symbol_positions(text, duplicate_symbol)?;
+
+    // Remove the second occurrence (including comma)
+    let mut changes = HashMap::new();
+    changes.insert(
+        uri.clone(),
+        vec![TextEdit {
+            range: second_pos,
+            new_text: String::new(),
+        }],
+    );
+
+    Some(CodeAction {
+        title: format!("Remove duplicate symbol '{}'", duplicate_symbol),
+        kind: Some(CodeActionKind::QUICKFIX),
+        diagnostics: Some(vec![diagnostic.clone()]),
+        edit: Some(WorkspaceEdit {
+            changes: Some(changes),
+            document_changes: None,
+            change_annotations: None,
+        }),
+        command: None,
+        is_preferred: Some(true),
+        disabled: None,
+        data: None,
+    })
+}
+
+/// Fix an invalid name according to Avro rules
+fn fix_invalid_name(name: &str) -> String {
+    let regex = Regex::new(r"^[A-Za-z_][A-Za-z0-9_]*$").unwrap();
+
+    // If already valid, return as-is
+    if regex.is_match(name) {
+        return name.to_string();
+    }
+
+    let mut fixed = String::new();
+    let mut has_valid_char = false;
+
+    for (i, ch) in name.chars().enumerate() {
+        if i == 0 {
+            // First character must be letter or underscore
+            if ch.is_ascii_alphabetic() || ch == '_' {
+                fixed.push(ch);
+                has_valid_char = true;
+            } else if ch.is_ascii_digit() {
+                // Prepend underscore if starts with digit
+                fixed.push('_');
+                fixed.push(ch);
+                has_valid_char = true;
+            } else {
+                // Skip invalid chars at start, we'll add underscore if needed
+            }
+        } else {
+            // Subsequent characters can be letter, digit, or underscore
+            if ch.is_ascii_alphanumeric() || ch == '_' {
+                fixed.push(ch);
+                has_valid_char = true;
+            } else {
+                // Replace invalid char with underscore (but avoid consecutive underscores)
+                if !fixed.ends_with('_') && has_valid_char {
+                    fixed.push('_');
+                }
+            }
+        }
+    }
+
+    // Ensure we start with valid character
+    if fixed.is_empty() || !regex.is_match(&fixed) {
+        if fixed.is_empty() {
+            fixed = "_".to_string();
+        } else if !fixed.chars().next().unwrap().is_ascii_alphabetic()
+            && !fixed.starts_with('_')
+        {
+            fixed = format!("_{}", fixed);
+        }
+    }
+
+    fixed
+}
+
+/// Fix an invalid namespace by removing or fixing invalid segments
+fn fix_invalid_namespace(namespace: &str) -> String {
+    let segments: Vec<&str> = namespace.split('.').collect();
+    let regex = Regex::new(r"^[A-Za-z_][A-Za-z0-9_]*$").unwrap();
+
+    let valid_segments: Vec<String> = segments
+        .iter()
+        .filter_map(|seg| {
+            if regex.is_match(seg) {
+                // Already valid
+                Some(seg.to_string())
+            } else {
+                // Check if segment has any valid characters
+                let has_letter = seg.chars().any(|c| c.is_ascii_alphabetic());
+                if has_letter {
+                    // Try to fix it if it has letters
+                    let fixed = fix_invalid_name(seg);
+                    if regex.is_match(&fixed) {
+                        Some(fixed)
+                    } else {
+                        None
+                    }
+                } else {
+                    // Skip segments with no letters (pure numbers, symbols)
+                    None
+                }
+            }
+        })
+        .collect();
+
+    valid_segments.join(".")
+}
+
+/// Find the range of a name value in the schema
+fn find_name_range_in_schema(
+    _schema: &AvroSchema,
+    _name: &str,
+    diagnostic_range: Range,
+) -> Option<Range> {
+    // Use diagnostic range as a hint - the name should be near there
+    // For simplicity, we'll use the diagnostic range itself
+    // A more sophisticated implementation would parse the JSON to find exact positions
+    Some(diagnostic_range)
+}
+
+/// Find the range of a namespace value in the schema
+fn find_namespace_range_in_schema(_schema: &AvroSchema, diagnostic_range: Range) -> Option<Range> {
+    // Use diagnostic range directly
+    Some(diagnostic_range)
+}
+
+/// Find the range of the "type" value in a primitive object
+fn find_primitive_type_range(text: &str, diagnostic_range: Range) -> Option<Range> {
+    // Search within the diagnostic range area for "type": "..."
+    let lines: Vec<&str> = text.lines().collect();
+
+    let start_line = diagnostic_range.start.line as usize;
+    let end_line = (diagnostic_range.end.line as usize).min(lines.len());
+
+    for line_num in start_line..=end_line {
+        if line_num >= lines.len() {
+            break;
+        }
+
+        let line = lines[line_num];
+
+        // Look for "type": "int" or similar
+        if let Some(type_pos) = line.find("\"type\"") {
+            // Find the value after the colon
+            if let Some(colon_pos) = line[type_pos..].find(':') {
+                let after_colon = &line[type_pos + colon_pos + 1..];
+                if let Some(quote_start) = after_colon.find('"') {
+                    if let Some(quote_end) = after_colon[quote_start + 1..].find('"') {
+                        let value_start = type_pos + colon_pos + 1 + quote_start;
+                        let value_end = value_start + quote_end + 2; // Include both quotes
+
+                        return Some(Range {
+                            start: Position {
+                                line: line_num as u32,
+                                character: value_start as u32,
+                            },
+                            end: Position {
+                                line: line_num as u32,
+                                character: value_end as u32,
+                            },
+                        });
+                    }
+                }
+            }
+        }
+    }
+
+    None
+}
+
+/// Find positions of duplicate symbols in the symbols array
+fn find_duplicate_symbol_positions(text: &str, symbol: &str) -> Option<(Range, Range)> {
+    let lines: Vec<&str> = text.lines().collect();
+    let mut positions = Vec::new();
+
+    let search_pattern = format!("\"{}\"", symbol);
+
+    for (line_num, line) in lines.iter().enumerate() {
+        let mut search_start = 0;
+        while let Some(pos) = line[search_start..].find(&search_pattern) {
+            let absolute_pos = search_start + pos;
+            let mut start_pos = Position {
+                line: line_num as u32,
+                character: absolute_pos as u32,
+            };
+            let mut end_pos = Position {
+                line: line_num as u32,
+                character: (absolute_pos + search_pattern.len()) as u32,
+            };
+
+            // Check if we need to include the comma
+            if let Some(comma_pos) = line[absolute_pos + search_pattern.len()..].find(',') {
+                // Include comma and any trailing spaces
+                end_pos.character += comma_pos as u32 + 1;
+
+                // Skip trailing spaces
+                let after_comma = &line[(absolute_pos + search_pattern.len() + comma_pos + 1)..];
+                let spaces = after_comma
+                    .chars()
+                    .take_while(|c| c.is_whitespace())
+                    .count();
+                end_pos.character += spaces as u32;
+            } else {
+                // Check for preceding comma
+                let before_match = &line[..absolute_pos];
+                if let Some(comma_pos) = before_match.rfind(',') {
+                    // Include preceding comma
+                    start_pos = Position {
+                        line: line_num as u32,
+                        character: comma_pos as u32,
+                    };
+                }
+            }
+
+            positions.push(Range {
+                start: start_pos,
+                end: end_pos,
+            });
+
+            search_start = absolute_pos + search_pattern.len();
+        }
+    }
+
+    if positions.len() >= 2 {
+        Some((positions[0], positions[1]))
+    } else {
+        None
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -580,8 +1060,7 @@ mod tests {
             },
         );
 
-        assert!(actions.is_some(), "Should have code actions");
-        let actions = actions.unwrap();
+        assert!(!actions.is_empty(), "Should have code actions");
 
         // Find the "Make nullable" action
         let make_nullable = actions
@@ -639,7 +1118,7 @@ mod tests {
             },
         );
 
-        assert!(actions.is_some(), "Should have code actions");
+        assert!(!actions.is_empty(), "Should have code actions");
     }
 
     #[test]
@@ -671,8 +1150,7 @@ mod tests {
             },
         );
 
-        assert!(actions.is_some(), "Should have code actions");
-        let actions = actions.unwrap();
+        assert!(!actions.is_empty(), "Should have code actions");
 
         let make_nullable = actions
             .iter()
@@ -722,7 +1200,7 @@ mod tests {
         );
 
         // Should not offer "Make nullable" for fields that are already unions
-        if let Some(actions) = actions {
+        if !actions.is_empty() {
             let make_nullable = actions
                 .iter()
                 .find(|a| a.title.contains("Make") && a.title.contains("nullable"));
@@ -765,8 +1243,7 @@ mod tests {
             },
         );
 
-        assert!(actions.is_some(), "Should have code actions");
-        let actions = actions.unwrap();
+        assert!(!actions.is_empty(), "Should have code actions");
 
         let sort_action = actions
             .iter()
@@ -808,7 +1285,7 @@ mod tests {
             },
         );
 
-        if let Some(actions) = actions {
+        if !actions.is_empty() {
             let sort_action = actions
                 .iter()
                 .find(|a| a.title == "Sort fields alphabetically");
@@ -849,8 +1326,7 @@ mod tests {
             },
         );
 
-        assert!(actions.is_some(), "Should have code actions");
-        let actions = actions.unwrap();
+        assert!(!actions.is_empty(), "Should have code actions");
 
         let add_default = actions
             .iter()
@@ -890,7 +1366,7 @@ mod tests {
             },
         );
 
-        if let Some(actions) = actions {
+        if !actions.is_empty() {
             let add_default = actions
                 .iter()
                 .find(|a| a.title.contains("Add default value"));
@@ -929,8 +1405,7 @@ mod tests {
             },
         );
 
-        assert!(actions.is_some(), "Should have code actions");
-        let actions = actions.unwrap();
+        assert!(!actions.is_empty(), "Should have code actions");
 
         let add_doc = actions
             .iter()
@@ -968,8 +1443,7 @@ mod tests {
             },
         );
 
-        assert!(actions.is_some(), "Should have code actions");
-        let actions = actions.unwrap();
+        assert!(!actions.is_empty(), "Should have code actions");
 
         let add_field = actions.iter().find(|a| a.title.contains("Add field"));
 
@@ -1019,8 +1493,7 @@ mod tests {
             },
         );
 
-        assert!(actions.is_some(), "Should have code actions for field");
-        let actions = actions.unwrap();
+        assert!(!actions.is_empty(), "Should have code actions for field");
 
         println!(
             "Available actions: {:?}",
@@ -1090,10 +1563,9 @@ mod tests {
                 end: position1,
             },
         );
-        assert!(actions1.is_some());
+        assert!(!actions1.is_empty());
         assert!(
             actions1
-                .unwrap()
                 .iter()
                 .any(|a| a.title.contains("Add documentation for field"))
         );
@@ -1112,12 +1584,238 @@ mod tests {
                 end: position2,
             },
         );
-        assert!(actions2.is_some());
+        assert!(!actions2.is_empty());
         // On type value, we get FieldType actions
-        let actions2_vec = actions2.unwrap();
+        let actions2_vec = actions2;
         let action_titles: Vec<_> = actions2_vec.iter().map(|a| a.title.as_str()).collect();
         println!("Actions at type value: {:?}", action_titles);
         // At type position, we prioritize FieldType for "Make nullable",
         // so Field doc might not be there - that's OK
+    }
+
+    // === Quick Fix Tests ===
+
+    #[test]
+    fn test_quick_fix_invalid_name() {
+        let schema_text = r#"{
+  "type": "record",
+  "name": "123Invalid",
+  "fields": [
+    {"name": "value", "type": "string"}
+  ]
+}"#;
+
+        let mut parser = AvroParser::new();
+        let schema = parser.parse(schema_text).expect("Should parse");
+        let uri = Url::parse("file:///test.avsc").unwrap();
+
+        // Create a diagnostic for invalid name
+        let diagnostic = Diagnostic {
+            range: Range {
+                start: Position {
+                    line: 2,
+                    character: 11,
+                },
+                end: Position {
+                    line: 2,
+                    character: 22,
+                },
+            },
+            severity: Some(async_lsp::lsp_types::DiagnosticSeverity::ERROR),
+            message: "Invalid name '123Invalid': must match [A-Za-z_][A-Za-z0-9_]*".to_string(),
+            source: Some("avro-lsp".to_string()),
+            ..Default::default()
+        };
+
+        let quick_fixes =
+            get_quick_fixes_from_diagnostics(&schema, schema_text, &uri, &[diagnostic]);
+
+        assert!(!quick_fixes.is_empty(), "Should have quick fixes");
+
+        // Find the fix invalid name action
+        let fix = quick_fixes.iter().find(|a| a.title.contains("Fix invalid name"));
+
+        assert!(fix.is_some(), "Should have 'Fix invalid name' action");
+        let action = fix.unwrap();
+
+        // Verify it's a QUICKFIX
+        assert_eq!(
+            action.kind,
+            Some(async_lsp::lsp_types::CodeActionKind::QUICKFIX)
+        );
+
+        // Verify the fix suggests a valid name
+        assert!(
+            action.title.contains("_123Invalid"),
+            "Should suggest '_123Invalid', got: {}",
+            action.title
+        );
+    }
+
+    #[test]
+    fn test_quick_fix_invalid_namespace() {
+        let schema_text = r#"{
+  "type": "record",
+  "name": "Test",
+  "namespace": "123.invalid",
+  "fields": [
+    {"name": "value", "type": "string"}
+  ]
+}"#;
+
+        let mut parser = AvroParser::new();
+        let schema = parser.parse(schema_text).expect("Should parse");
+        let uri = Url::parse("file:///test.avsc").unwrap();
+
+        // Create a diagnostic for invalid namespace
+        let diagnostic = Diagnostic {
+            range: Range {
+                start: Position {
+                    line: 3,
+                    character: 16,
+                },
+                end: Position {
+                    line: 3,
+                    character: 29,
+                },
+            },
+            severity: Some(async_lsp::lsp_types::DiagnosticSeverity::ERROR),
+            message: "Invalid namespace '123.invalid': must be dot-separated names".to_string(),
+            source: Some("avro-lsp".to_string()),
+            ..Default::default()
+        };
+
+        let quick_fixes =
+            get_quick_fixes_from_diagnostics(&schema, schema_text, &uri, &[diagnostic]);
+
+        assert!(!quick_fixes.is_empty(), "Should have quick fixes");
+
+        // Should have at least one fix for the namespace
+        let fix = quick_fixes
+            .iter()
+            .find(|a| a.title.contains("namespace"));
+
+        assert!(fix.is_some(), "Should have namespace fix action");
+    }
+
+    #[test]
+    fn test_quick_fix_logical_type() {
+        let schema_text = r#"{
+  "type": "record",
+  "name": "InvalidLogicalType",
+  "fields": [
+    {
+      "name": "bad_uuid",
+      "type": {
+        "type": "int",
+        "logicalType": "uuid"
+      }
+    }
+  ]
+}"#;
+
+        let mut parser = AvroParser::new();
+        let schema = parser.parse(schema_text).expect("Should parse");
+        let uri = Url::parse("file:///test.avsc").unwrap();
+
+        // Create a diagnostic for logical type error
+        let diagnostic = Diagnostic {
+            range: Range {
+                start: Position { line: 7, character: 8 },
+                end: Position {
+                    line: 10,
+                    character: 7,
+                },
+            },
+            severity: Some(async_lsp::lsp_types::DiagnosticSeverity::ERROR),
+            message: "Invalid logical type 'uuid' for type int - requires string".to_string(),
+            source: Some("avro-lsp".to_string()),
+            ..Default::default()
+        };
+
+        let quick_fixes =
+            get_quick_fixes_from_diagnostics(&schema, schema_text, &uri, &[diagnostic]);
+
+        assert!(!quick_fixes.is_empty(), "Should have quick fixes");
+
+        // Find the fix logical type action
+        let fix = quick_fixes
+            .iter()
+            .find(|a| a.title.contains("Change base type"));
+
+        assert!(fix.is_some(), "Should have 'Change base type' action");
+        let action = fix.unwrap();
+
+        // Verify it suggests changing to string
+        assert!(
+            action.title.contains("string"),
+            "Should suggest changing to 'string', got: {}",
+            action.title
+        );
+    }
+
+    #[test]
+    fn test_quick_fix_duplicate_symbol() {
+        let schema_text = r#"{
+  "type": "enum",
+  "name": "Colors",
+  "symbols": ["RED", "GREEN", "RED"]
+}"#;
+
+        let mut parser = AvroParser::new();
+        let schema = parser.parse(schema_text).expect("Should parse");
+        let uri = Url::parse("file:///test.avsc").unwrap();
+
+        // Create a diagnostic for duplicate symbol
+        let diagnostic = Diagnostic {
+            range: Range {
+                start: Position { line: 3, character: 15 },
+                end: Position {
+                    line: 3,
+                    character: 38,
+                },
+            },
+            severity: Some(async_lsp::lsp_types::DiagnosticSeverity::ERROR),
+            message: "Duplicate symbol 'RED' in enum".to_string(),
+            source: Some("avro-lsp".to_string()),
+            ..Default::default()
+        };
+
+        let quick_fixes =
+            get_quick_fixes_from_diagnostics(&schema, schema_text, &uri, &[diagnostic]);
+
+        assert!(!quick_fixes.is_empty(), "Should have quick fixes");
+
+        // Find the remove duplicate action
+        let fix = quick_fixes
+            .iter()
+            .find(|a| a.title.contains("Remove duplicate"));
+
+        assert!(fix.is_some(), "Should have 'Remove duplicate' action");
+        let action = fix.unwrap();
+
+        // Verify it mentions the symbol name
+        assert!(
+            action.title.contains("RED"),
+            "Should mention symbol 'RED', got: {}",
+            action.title
+        );
+    }
+
+    #[test]
+    fn test_fix_invalid_name_function() {
+        assert_eq!(fix_invalid_name("123abc"), "_123abc");
+        assert_eq!(fix_invalid_name("valid_name"), "valid_name");
+        assert_eq!(fix_invalid_name("with-dash"), "with_dash");
+        assert_eq!(fix_invalid_name("with space"), "with_space");
+        assert_eq!(fix_invalid_name("!!!"), "_");
+    }
+
+    #[test]
+    fn test_fix_invalid_namespace_function() {
+        assert_eq!(fix_invalid_namespace("com.example.test"), "com.example.test");
+        assert_eq!(fix_invalid_namespace("123.invalid"), "invalid");
+        assert_eq!(fix_invalid_namespace("valid.123invalid"), "valid");
+        assert_eq!(fix_invalid_namespace("com.test-dash.app"), "com.test_dash.app");
     }
 }

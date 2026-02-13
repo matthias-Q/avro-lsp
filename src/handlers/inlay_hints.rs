@@ -57,6 +57,14 @@ fn collect_field_hints(avro_type: &AvroType, hints: &mut Vec<InlayHint>) {
 fn format_type_hint(avro_type: &AvroType) -> String {
     match avro_type {
         AvroType::Primitive(prim) => format_primitive(prim),
+        AvroType::PrimitiveObject(prim_obj) => {
+            let base = format_primitive(&prim_obj.primitive_type);
+            if let Some(logical_type) = &prim_obj.logical_type {
+                format!("{} ({})", base, logical_type)
+            } else {
+                base
+            }
+        }
         AvroType::Union(types) => {
             let formatted: Vec<String> = types.iter().map(format_type_hint).collect();
             formatted.join(" | ")

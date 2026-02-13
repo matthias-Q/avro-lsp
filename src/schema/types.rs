@@ -14,6 +14,7 @@ pub struct AvroSchema {
 #[serde(untagged)]
 pub enum AvroType {
     Primitive(PrimitiveType),
+    PrimitiveObject(PrimitiveSchema),
     Record(RecordSchema),
     Enum(EnumSchema),
     Array(ArraySchema),
@@ -33,9 +34,10 @@ pub struct TypeRefSchema {
     pub range: Option<Range>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "lowercase")]
 pub enum PrimitiveType {
+    #[default]
     Null,
     Boolean,
     Int,
@@ -60,6 +62,26 @@ impl PrimitiveType {
             _ => None,
         }
     }
+}
+
+/// Represents a primitive type with optional logical type metadata
+/// Used for cases like {"type": "int", "logicalType": "date"}
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PrimitiveSchema {
+    #[serde(rename = "type")]
+    pub type_name: String,
+    #[serde(skip)]
+    pub primitive_type: PrimitiveType,
+    #[serde(skip_serializing_if = "Option::is_none", rename = "logicalType")]
+    pub logical_type: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub precision: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub scale: Option<usize>,
+
+    // Position tracking (not serialized)
+    #[serde(skip)]
+    pub range: Option<Range>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
