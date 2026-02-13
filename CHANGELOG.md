@@ -2,6 +2,20 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.1.4] - 2026-02-13
+
+### Features
+
+- Folding, more code_actions, multi file
+
+### Documentation
+
+- Add build and release information badged
+
+### Miscellaneous Tasks
+
+- *(release)* Release version v0.1.4
+
 ## [0.1.3] - 2026-02-13
 
 ### Features
