@@ -1,3 +1,4 @@
+mod handlers;
 mod schema;
 mod server;
 mod state;
@@ -8,9 +9,8 @@ use tracing_subscriber::{EnvFilter, fmt, prelude::*};
 #[tokio::main(flavor = "current_thread")]
 async fn main() {
     // Initialize tracing - default to INFO, but allow override with RUST_LOG env var
-    let filter = EnvFilter::try_from_default_env()
-        .unwrap_or_else(|_| EnvFilter::new("info"));
-    
+    let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
+
     tracing_subscriber::registry()
         .with(fmt::layer().with_writer(std::io::stderr))
         .with(filter)

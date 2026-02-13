@@ -1,5 +1,6 @@
 use async_lsp::lsp_types::{Position, Range};
 use nom::{
+    IResult,
     branch::alt,
     bytes::complete::{escaped, tag, take_while},
     character::complete::{char, multispace0, one_of},
@@ -7,7 +8,6 @@ use nom::{
     multi::separated_list0,
     number::complete::double,
     sequence::preceded,
-    IResult,
 };
 use nom_locate::LocatedSpan;
 use std::collections::HashMap;
@@ -63,8 +63,31 @@ impl JsonValue {
 /// Convert Span position to LSP Position
 fn span_to_position(span: Span) -> Position {
     Position {
-        line: (span.location_line() - 1),
-        character: (span.get_column() - 1) as u32,
+        line: span.location_line() - 1, // LSP uses 0-based line numbers
+        character: span.get_utf8_column() as u32 - 1, // LSP uses 0-based columns
+    }
+}
+
+/// Convert a byte offset in a string to a Position
+fn offset_to_position_in_str(text: &str, offset: usize) -> Position {
+    let mut line = 0u32;
+    let mut column = 0u32;
+
+    for (i, ch) in text.char_indices() {
+        if i >= offset {
+            break;
+        }
+        if ch == '\n' {
+            line += 1;
+            column = 0;
+        } else {
+            column += 1;
+        }
+    }
+
+    Position {
+        line,
+        character: column,
     }
 }
 
@@ -194,11 +217,42 @@ pub fn parse_json(input: &str) -> Result<JsonValue, String> {
         }
         Err(nom::Err::Error(e)) | Err(nom::Err::Failure(e)) => {
             // Extract position from nom error
-            let position = span_to_position(e.input);
+            let error_position = span_to_position(e.input);
+            let mut actual_position = error_position;
+
+            // Try to find the actual location of missing comma by scanning the full input
+            // for patterns like `}\s*\n\s*{` or `]\s*\n\s*[` which indicate a missing comma
+
+            // Use regex-like scanning to find missing comma patterns
+            let bytes = input.as_bytes();
+            let mut i = 0;
+
+            while i < bytes.len() {
+                // Check if we have a closing delimiter (} or ])
+                if bytes[i] == b'}' || bytes[i] == b']' {
+                    let mut j = i + 1;
+
+                    // Skip whitespace after the closing delimiter
+                    while j < bytes.len() && (bytes[j] as char).is_whitespace() {
+                        j += 1;
+                    }
+
+                    // Check if next non-whitespace is an opening delimiter
+                    if j < bytes.len() && (bytes[j] == b'{' || bytes[j] == b'[') {
+                        // Found pattern like `}\s*{` or `]\s*[` - missing comma!
+                        // Report position right after the closing delimiter
+                        let pos_after_close = i + 1;
+                        actual_position = offset_to_position_in_str(input, pos_after_close);
+                        break;
+                    }
+                }
+                i += 1;
+            }
+
             Err(format!(
                 "Parse error at line {}, column {}",
-                position.line + 1,
-                position.character + 1
+                actual_position.line + 1,
+                actual_position.character + 1
             ))
         }
         Err(nom::Err::Incomplete(_)) => Err("Parse error: incomplete input".to_string()),
@@ -237,6 +291,59 @@ mod tests {
             JsonValue::Array(arr, _) => assert_eq!(arr.len(), 3),
             _ => panic!("Expected array"),
         }
+    }
+
+    #[test]
+    fn test_missing_comma_in_array() {
+        let input = r#"[
+  {"name": "first"}
+  {"name": "second"}
+]"#;
+
+        let result = parse_json(input);
+        assert!(
+            result.is_err(),
+            "Should fail to parse array with missing comma"
+        );
+
+        let err_msg = result.unwrap_err();
+
+        // The error should now point to line 2 (after the first object)
+        // where the comma is missing
+        assert!(
+            err_msg.contains("line 2") || err_msg.contains("line 3"),
+            "Error should be on line 2 or 3, got: {}",
+            err_msg
+        );
+    }
+
+    #[test]
+    fn test_missing_comma_in_object_fields() {
+        let input = r#"{
+  "type": "record",
+  "name": "User",
+  "fields": [
+    {"name": "name", "type": "string"}
+    {"name": "age", "type": "int"}
+  ]
+}"#;
+
+        let result = parse_json(input);
+        assert!(
+            result.is_err(),
+            "Should fail to parse with missing comma in array"
+        );
+
+        let err_msg = result.unwrap_err();
+
+        // The error should be reported at line 5 or 6
+        // Line 5: {"name": "name", "type": "string"}  (missing comma after this)
+        // Line 6: {"name": "age", "type": "int"}      (unexpected object here)
+        assert!(
+            err_msg.contains("line 5") || err_msg.contains("line 6"),
+            "Error should be on line 5 or 6, got: {}",
+            err_msg
+        );
     }
 
     #[test]

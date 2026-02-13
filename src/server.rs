@@ -322,13 +322,16 @@ impl LanguageServer for AvroLanguageServer {
         let position = params.text_document_position.position;
         let new_name = params.new_name;
 
-        tracing::debug!("Rename request for {} at {:?} to '{}'", uri, position, new_name);
+        tracing::debug!(
+            "Rename request for {} at {:?} to '{}'",
+            uri,
+            position,
+            new_name
+        );
 
         let state = self.state.clone();
 
-        Box::pin(async move {
-            state.rename(&uri, position, &new_name).await
-        })
+        Box::pin(async move { state.rename(&uri, position, &new_name).await })
     }
 
     fn prepare_rename(
@@ -342,9 +345,7 @@ impl LanguageServer for AvroLanguageServer {
 
         let state = self.state.clone();
 
-        Box::pin(async move {
-            state.prepare_rename(&uri, position).await
-        })
+        Box::pin(async move { state.prepare_rename(&uri, position).await })
     }
 
     fn references(
@@ -360,7 +361,9 @@ impl LanguageServer for AvroLanguageServer {
         let state = self.state.clone();
 
         Box::pin(async move {
-            state.find_references(&uri, position, include_declaration).await
+            state
+                .find_references(&uri, position, include_declaration)
+                .await
         })
     }
 }
