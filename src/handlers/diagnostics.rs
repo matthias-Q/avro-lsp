@@ -1,9 +1,20 @@
 use async_lsp::lsp_types::{Diagnostic, DiagnosticSeverity, Position, Range};
 
 use crate::schema::{AvroParser, AvroSchema, AvroType, AvroValidator, SchemaError};
+use crate::workspace::Workspace;
 
 /// Parse and validate Avro schema text, returning diagnostics
+/// If workspace is provided, cross-file type references will be validated
+#[allow(dead_code)]  // Used for backward compatibility
 pub fn parse_and_validate(text: &str) -> Vec<Diagnostic> {
+    parse_and_validate_with_workspace(text, None)
+}
+
+/// Parse and validate with optional workspace for cross-file type checking
+pub fn parse_and_validate_with_workspace(
+    text: &str,
+    workspace: Option<&Workspace>,
+) -> Vec<Diagnostic> {
     let mut diagnostics = Vec::new();
 
     // Try to parse
@@ -74,9 +85,15 @@ pub fn parse_and_validate(text: &str) -> Vec<Diagnostic> {
         }
     };
 
-    // Try to validate - now using AST-based error position finding
+    // Try to validate - use workspace if provided for cross-file type checking
     let validator = AvroValidator::new();
-    if let Err(e) = validator.validate(&schema) {
+    let validation_result = if let Some(ws) = workspace {
+        validator.validate_with_resolver(&schema, ws)
+    } else {
+        validator.validate(&schema)
+    };
+
+    if let Err(e) = validation_result {
         // Try to find the position of the error using AST
         let position_range = find_error_position_in_ast(&e, &schema);
 

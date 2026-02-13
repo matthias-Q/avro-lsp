@@ -7,4 +7,4 @@ pub mod validator;
 pub use error::SchemaError;
 pub use parser::AvroParser;
 pub use types::*;
-pub use validator::AvroValidator;
+pub use validator::{AvroValidator, TypeResolver};

@@ -4,6 +4,23 @@ use std::collections::{HashMap, HashSet};
 use super::error::{Result, SchemaError};
 use super::types::*;
 
+/// External type resolver for cross-file type checking
+pub trait TypeResolver {
+    /// Check if a type name exists (either locally or in workspace)
+    fn type_exists(&self, name: &str) -> bool;
+}
+
+/// Default resolver that only checks local types
+struct LocalTypeResolver<'a> {
+    named_types: &'a HashMap<String, AvroType>,
+}
+
+impl<'a> TypeResolver for LocalTypeResolver<'a> {
+    fn type_exists(&self, name: &str) -> bool {
+        self.named_types.contains_key(name)
+    }
+}
+
 pub struct AvroValidator {
     name_regex: Regex,
 }
@@ -21,29 +38,60 @@ impl AvroValidator {
         Ok(())
     }
 
+    /// Validate with a custom type resolver (for workspace-aware validation)
+    pub fn validate_with_resolver(
+        &self,
+        schema: &AvroSchema,
+        resolver: &dyn TypeResolver,
+    ) -> Result<()> {
+        self.validate_type_with_resolver(&schema.root, &schema.named_types, resolver)?;
+        Ok(())
+    }
+
     fn validate_type(
         &self,
         avro_type: &AvroType,
         named_types: &HashMap<String, AvroType>,
     ) -> Result<()> {
+        let resolver = LocalTypeResolver { named_types };
+        self.validate_type_with_resolver(avro_type, named_types, &resolver)
+    }
+
+    fn validate_type_with_resolver(
+        &self,
+        avro_type: &AvroType,
+        named_types: &HashMap<String, AvroType>,
+        resolver: &dyn TypeResolver,
+    ) -> Result<()> {
         match avro_type {
             AvroType::Primitive(_) => Ok(()),
-            AvroType::Record(record) => self.validate_record(record, named_types),
+            AvroType::Record(record) => self.validate_record_with_resolver(record, named_types, resolver),
             AvroType::Enum(enum_schema) => self.validate_enum(enum_schema),
-            AvroType::Array(array) => self.validate_type(&array.items, named_types),
-            AvroType::Map(map) => self.validate_type(&map.values, named_types),
-            AvroType::Union(types) => self.validate_union(types, named_types),
+            AvroType::Array(array) => self.validate_type_with_resolver(&array.items, named_types, resolver),
+            AvroType::Map(map) => self.validate_type_with_resolver(&map.values, named_types, resolver),
+            AvroType::Union(types) => self.validate_union_with_resolver(types, named_types, resolver),
             AvroType::Fixed(fixed) => self.validate_fixed(fixed),
             AvroType::TypeRef(type_ref) => {
-                self.validate_type_reference(&type_ref.name, named_types)
+                self.validate_type_reference_with_resolver(&type_ref.name, named_types, resolver)
             }
         }
     }
 
+    #[allow(dead_code)]  // Internal helper, kept for backward compatibility
     fn validate_record(
         &self,
         record: &RecordSchema,
         named_types: &HashMap<String, AvroType>,
+    ) -> Result<()> {
+        let resolver = LocalTypeResolver { named_types };
+        self.validate_record_with_resolver(record, named_types, &resolver)
+    }
+
+    fn validate_record_with_resolver(
+        &self,
+        record: &RecordSchema,
+        named_types: &HashMap<String, AvroType>,
+        resolver: &dyn TypeResolver,
     ) -> Result<()> {
         // Validate name
         self.validate_name(&record.name)?;
@@ -62,7 +110,7 @@ impl AvroValidator {
 
         for field in &record.fields {
             self.validate_name(&field.name)?;
-            self.validate_type(&field.field_type, named_types)?;
+            self.validate_type_with_resolver(&field.field_type, named_types, resolver)?;
 
             // Validate default value if present
             if let Some(default_value) = &field.default {
@@ -176,10 +224,21 @@ impl AvroValidator {
         Ok(())
     }
 
+    #[allow(dead_code)]  // Internal helper, kept for backward compatibility
     fn validate_union(
         &self,
         types: &[AvroType],
         named_types: &HashMap<String, AvroType>,
+    ) -> Result<()> {
+        let resolver = LocalTypeResolver { named_types };
+        self.validate_union_with_resolver(types, named_types, &resolver)
+    }
+
+    fn validate_union_with_resolver(
+        &self,
+        types: &[AvroType],
+        named_types: &HashMap<String, AvroType>,
+        resolver: &dyn TypeResolver,
     ) -> Result<()> {
         if types.is_empty() {
             return Err(SchemaError::Custom("Union cannot be empty".to_string()));
@@ -203,24 +262,35 @@ impl AvroValidator {
 
         // Validate each type in the union
         for t in types {
-            self.validate_type(t, named_types)?;
+            self.validate_type_with_resolver(t, named_types, resolver)?;
         }
 
         Ok(())
     }
 
+    #[allow(dead_code)]  // Internal helper, kept for backward compatibility
     fn validate_type_reference(
         &self,
         name: &str,
         named_types: &HashMap<String, AvroType>,
+    ) -> Result<()> {
+        let resolver = LocalTypeResolver { named_types };
+        self.validate_type_reference_with_resolver(name, named_types, &resolver)
+    }
+
+    fn validate_type_reference_with_resolver(
+        &self,
+        name: &str,
+        named_types: &HashMap<String, AvroType>,
+        resolver: &dyn TypeResolver,
     ) -> Result<()> {
         // Check if it's a primitive type
         if PrimitiveType::from_str(name).is_some() {
             return Ok(());
         }
 
-        // Check if it's a defined named type
-        if named_types.contains_key(name) {
+        // Check if it's a defined named type (local or workspace)
+        if named_types.contains_key(name) || resolver.type_exists(name) {
             return Ok(());
         }
 

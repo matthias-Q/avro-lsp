@@ -2,8 +2,10 @@ use async_lsp::lsp_types::{Location, Url};
 
 use crate::handlers::symbols;
 use crate::schema::AvroSchema;
+use crate::workspace::Workspace;
 
 /// Find the definition of a symbol at the given position
+#[allow(dead_code)] // Kept for backward compatibility
 pub fn find_definition(schema: &AvroSchema, text: &str, word: &str, uri: &Url) -> Option<Location> {
     // Check if the word is a named type in the schema
     if schema.named_types.contains_key(word) {
@@ -18,4 +20,117 @@ pub fn find_definition(schema: &AvroSchema, text: &str, word: &str, uri: &Url) -
 
     // Not a type reference we can navigate to
     None
+}
+
+/// Find the definition of a symbol with workspace support (cross-file navigation)
+pub fn find_definition_with_workspace(
+    schema: &AvroSchema,
+    text: &str,
+    word: &str,
+    uri: &Url,
+    workspace: Option<&Workspace>,
+) -> Option<Location> {
+    // First check local schema
+    if schema.named_types.contains_key(word) {
+        // Find where this type is defined (its name declaration)
+        let range = symbols::find_name_range(text, word)?;
+
+        return Some(Location {
+            uri: uri.clone(),
+            range,
+        });
+    }
+
+    // If not found locally and workspace is available, search workspace
+    if let Some(workspace) = workspace {
+        // Look up the type in the workspace global registry
+        if let Some(type_info) = workspace.resolve_type(word, uri) {
+            // Type is defined in another file
+            return Some(Location {
+                uri: type_info.defined_in.clone(),
+                range: type_info.definition_range?,
+            });
+        }
+    }
+
+    // Not a type reference we can navigate to
+    None
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::schema::AvroParser;
+
+    #[test]
+    fn test_find_definition_local_type() {
+        let schema_text = r#"{
+  "type": "record",
+  "name": "User",
+  "fields": [
+    {"name": "address", "type": "Address"}
+  ]
+}"#;
+
+        let mut parser = AvroParser::new();
+        let schema = parser.parse(schema_text).unwrap();
+        let uri = Url::parse("file:///test.avsc").unwrap();
+
+        // User is defined locally, should find it
+        let location = find_definition_with_workspace(&schema, schema_text, "User", &uri, None);
+        assert!(location.is_some());
+        assert_eq!(location.unwrap().uri, uri);
+    }
+
+    #[test]
+    fn test_find_definition_cross_file() {
+        // Create workspace with Address definition
+        let mut workspace = Workspace::new();
+        let address_uri = Url::parse("file:///address.avsc").unwrap();
+        let address_schema = r#"{
+  "type": "record",
+  "name": "Address",
+  "namespace": "com.example",
+  "fields": [{"name": "city", "type": "string"}]
+}"#;
+        workspace
+            .update_file(address_uri.clone(), address_schema.to_string())
+            .unwrap();
+
+        // User schema references Address
+        let user_uri = Url::parse("file:///user.avsc").unwrap();
+        let user_schema = r#"{
+  "type": "record",
+  "name": "User",
+  "namespace": "com.example",
+  "fields": [{"name": "address", "type": "Address"}]
+}"#;
+
+        let mut parser = AvroParser::new();
+        let schema = parser.parse(user_schema).unwrap();
+
+        // Looking up "Address" should point to address.avsc
+        let location =
+            find_definition_with_workspace(&schema, user_schema, "Address", &user_uri, Some(&workspace));
+        assert!(location.is_some());
+        let loc = location.unwrap();
+        assert_eq!(loc.uri, address_uri);
+    }
+
+    #[test]
+    fn test_find_definition_unknown_type() {
+        let schema_text = r#"{
+  "type": "record",
+  "name": "User",
+  "fields": []
+}"#;
+
+        let mut parser = AvroParser::new();
+        let schema = parser.parse(schema_text).unwrap();
+        let uri = Url::parse("file:///test.avsc").unwrap();
+
+        // "UnknownType" doesn't exist
+        let location = find_definition_with_workspace(&schema, schema_text, "UnknownType", &uri, None);
+        assert!(location.is_none());
+    }
 }

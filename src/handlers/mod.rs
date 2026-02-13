@@ -4,6 +4,7 @@ pub mod code_actions;
 pub mod completion;
 pub mod definition;
 pub mod diagnostics;
+pub mod folding_ranges;
 pub mod formatting;
 pub mod hover;
 pub mod inlay_hints;

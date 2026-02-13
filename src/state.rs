@@ -4,12 +4,14 @@ use async_lsp::lsp_types::{
     Range, SemanticToken, Url,
 };
 use std::collections::HashMap;
+use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
 use crate::schema::{
     AvroParser, AvroSchema, AvroType, EnumSchema, Field, FixedSchema, RecordSchema,
 };
+use crate::workspace::Workspace;
 
 #[derive(Clone)]
 pub struct ServerState {
@@ -18,6 +20,7 @@ pub struct ServerState {
 
 struct ServerStateInner {
     documents: HashMap<Url, Document>,
+    workspace: Workspace,
 }
 
 struct Document {
@@ -159,14 +162,107 @@ impl ServerState {
         Self {
             inner: Arc::new(RwLock::new(ServerStateInner {
                 documents: HashMap::new(),
+                workspace: Workspace::new(),
             })),
         }
+    }
+
+    /// Initialize workspace with root path and scan for .avsc files
+    pub async fn initialize_workspace(&self, root_uri: Option<Url>) -> Result<(), String> {
+        let root_path = match root_uri {
+            Some(uri) => {
+                // Convert file:// URI to path
+                uri.to_file_path()
+                    .map_err(|_| format!("Invalid workspace URI: {}", uri))?
+            }
+            None => {
+                tracing::info!("No workspace root provided, using empty workspace");
+                return Ok(());
+            }
+        };
+
+        tracing::info!("Initializing workspace at: {:?}", root_path);
+
+        // Check if .git directory exists to confirm it's a valid workspace
+        let git_path = root_path.join(".git");
+        if !git_path.exists() {
+            tracing::warn!("No .git directory found at {:?}, workspace scanning disabled", root_path);
+            return Ok(());
+        }
+
+        let mut state = self.inner.write().await;
+
+        // Update workspace with root path
+        state.workspace = crate::workspace::Workspace::with_root(root_path.clone());
+
+        // Scan for all .avsc files in the workspace
+        let avsc_files = Self::scan_workspace_for_avsc_files(&root_path)?;
+        tracing::info!("Found {} .avsc files in workspace", avsc_files.len());
+
+        // Load each file into the workspace
+        for file_path in avsc_files {
+            match tokio::fs::read_to_string(&file_path).await {
+                Ok(content) => {
+                    // Convert path to file:// URI
+                    let uri = Url::from_file_path(&file_path)
+                        .map_err(|_| format!("Invalid file path: {:?}", file_path))?;
+
+                    if let Err(e) = state.workspace.update_file(uri.clone(), content) {
+                        tracing::warn!("Failed to load {} into workspace: {}", uri, e);
+                    } else {
+                        tracing::debug!("Loaded {} into workspace", uri);
+                    }
+                }
+                Err(e) => {
+                    tracing::warn!("Failed to read file {:?}: {}", file_path, e);
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Recursively scan workspace directory for .avsc files
+    fn scan_workspace_for_avsc_files(root: &std::path::Path) -> Result<Vec<PathBuf>, String> {
+        let mut avsc_files = Vec::new();
+        let mut dirs_to_scan = vec![root.to_path_buf()];
+
+        while let Some(dir) = dirs_to_scan.pop() {
+            let entries = std::fs::read_dir(&dir)
+                .map_err(|e| format!("Failed to read directory {:?}: {}", dir, e))?;
+
+            for entry in entries {
+                let entry = entry
+                    .map_err(|e| format!("Failed to read directory entry: {}", e))?;
+                let path = entry.path();
+
+                // Skip hidden directories and common non-relevant directories
+                if let Some(name) = path.file_name().and_then(|n| n.to_str())
+                    && (name.starts_with('.') || name == "node_modules" || name == "target")
+                {
+                    continue;
+                }
+
+                if path.is_dir() {
+                    dirs_to_scan.push(path);
+                } else if path.extension().and_then(|e| e.to_str()) == Some("avsc") {
+                    avsc_files.push(path);
+                }
+            }
+        }
+
+        Ok(avsc_files)
     }
 
     /// Open a document and parse/validate it
     pub async fn did_open(&self, uri: Url, text: String, version: i32) -> Vec<Diagnostic> {
         let mut state = self.inner.write().await;
-        let diagnostics = crate::handlers::diagnostics::parse_and_validate(&text);
+        
+        // Validate with workspace context for cross-file type checking
+        let diagnostics = crate::handlers::diagnostics::parse_and_validate_with_workspace(
+            &text,
+            Some(&state.workspace),
+        );
 
         let schema = if diagnostics.is_empty() {
             let mut parser = AvroParser::new();
@@ -174,6 +270,11 @@ impl ServerState {
         } else {
             None
         };
+
+        // Update workspace with the new file
+        if let Err(e) = state.workspace.update_file(uri.clone(), text.clone()) {
+            tracing::warn!("Failed to update workspace for {}: {}", uri, e);
+        }
 
         state.documents.insert(
             uri,
@@ -197,6 +298,7 @@ impl ServerState {
     pub async fn did_close(&self, uri: &Url) {
         let mut state = self.inner.write().await;
         state.documents.remove(uri);
+        state.workspace.remove_file(uri);
     }
 
     /// Get hover information for a position in the document
@@ -269,7 +371,13 @@ impl ServerState {
 
         tracing::debug!("Looking for definition of '{}'", word);
 
-        crate::handlers::definition::find_definition(schema, text, &word, uri)
+        crate::handlers::definition::find_definition_with_workspace(
+            schema,
+            text,
+            &word,
+            uri,
+            Some(&state.workspace),
+        )
     }
 
     /// Format the document with proper JSON formatting
@@ -324,7 +432,14 @@ impl ServerState {
             None => return Ok(None),
         };
 
-        crate::handlers::rename::rename(schema, &doc.text, uri, position, new_name)
+        crate::handlers::rename::rename_with_workspace(
+            schema,
+            &doc.text,
+            uri,
+            position,
+            new_name,
+            Some(&state.workspace),
+        )
     }
 
     /// Prepare for rename - validate that rename is possible at this position
@@ -369,11 +484,12 @@ impl ServerState {
             None => return Ok(None),
         };
 
-        Ok(crate::handlers::rename::find_references(
+        Ok(crate::handlers::rename::find_references_with_workspace(
             schema,
             uri,
             position,
             include_declaration,
+            Some(&state.workspace),
         ))
     }
 
@@ -385,6 +501,21 @@ impl ServerState {
 
         Some(crate::handlers::inlay_hints::generate_inlay_hints(
             schema, &doc.text,
+        ))
+    }
+
+    /// Get folding ranges for a document
+    pub async fn get_folding_ranges(
+        &self,
+        uri: &Url,
+    ) -> Option<Vec<async_lsp::lsp_types::FoldingRange>> {
+        let state = self.inner.read().await;
+        let doc = state.documents.get(uri)?;
+        let schema = doc.schema.as_ref()?;
+        let text = &doc.text;
+
+        Some(crate::handlers::folding_ranges::get_folding_ranges(
+            schema, text,
         ))
     }
 }

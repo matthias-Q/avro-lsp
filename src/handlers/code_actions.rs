@@ -23,6 +23,12 @@ pub fn get_code_actions(schema: &AvroSchema, uri: &Url, range: Range) -> Option<
             if let Some(action) = create_add_field_action(uri, record) {
                 actions.push(action);
             }
+            // Offer "Sort fields alphabetically" if record has multiple fields
+            if record.fields.len() > 1
+                && let Some(action) = create_sort_fields_action(uri, record)
+            {
+                actions.push(action);
+            }
         }
         AstNode::Field(field) => {
             // Offer "Add documentation" if field doesn't have doc
@@ -41,6 +47,13 @@ pub fn get_code_actions(schema: &AvroSchema, uri: &Url, range: Range) -> Option<
             // Offer "Make nullable" if field type is not already a union with null
             if !is_union(&field.field_type)
                 && let Some(action) = create_make_nullable_action(uri, field)
+            {
+                actions.push(action);
+            }
+
+            // Offer "Add default value" if field doesn't have a default
+            if field.default.is_none()
+                && let Some(action) = create_add_default_value_action(uri, field)
             {
                 actions.push(action);
             }
@@ -372,6 +385,167 @@ fn find_parent_record_and_add_field(
     }
 }
 
+/// Create "Sort fields alphabetically" action for records
+fn create_sort_fields_action(
+    uri: &Url,
+    record: &RecordSchema,
+) -> Option<async_lsp::lsp_types::CodeAction> {
+    use async_lsp::lsp_types::{CodeAction, CodeActionKind, TextEdit, WorkspaceEdit};
+    use std::collections::HashMap;
+
+    // Check if fields are already sorted
+    let field_names: Vec<&str> = record.fields.iter().map(|f| f.name.as_str()).collect();
+    let mut sorted_names = field_names.clone();
+    sorted_names.sort();
+    
+    if field_names == sorted_names {
+        // Already sorted, no action needed
+        return None;
+    }
+
+    // We need to find the range covering all fields and replace with sorted version
+    let first_field = record.fields.first()?;
+    let last_field = record.fields.last()?;
+    
+    let first_range = first_field.range.as_ref()?;
+    let last_range = last_field.range.as_ref()?;
+    
+    let fields_range = Range {
+        start: first_range.start,
+        end: last_range.end,
+    };
+    
+    // Sort fields by name
+    let mut sorted_fields = record.fields.clone();
+    sorted_fields.sort_by(|a, b| a.name.cmp(&b.name));
+    
+    // Serialize sorted fields as JSON
+    let mut sorted_json = Vec::new();
+    for (i, field) in sorted_fields.iter().enumerate() {
+        let field_json = serde_json::json!({
+            "name": field.name,
+            "type": &*field.field_type,
+            "doc": field.doc,
+            "default": field.default,
+            "order": field.order,
+            "aliases": field.aliases,
+        });
+        
+        // Remove null fields for cleaner output
+        let mut field_map = field_json.as_object()?.clone();
+        field_map.retain(|_, v| !v.is_null());
+        
+        let field_str = serde_json::to_string_pretty(&field_map).ok()?;
+        
+        if i > 0 {
+            sorted_json.push(",\n    ".to_string());
+        } else {
+            sorted_json.push("".to_string());
+        }
+        sorted_json.push(field_str);
+    }
+    
+    let new_text = sorted_json.concat();
+    
+    let mut changes = HashMap::new();
+    changes.insert(
+        uri.clone(),
+        vec![TextEdit {
+            range: fields_range,
+            new_text,
+        }],
+    );
+
+    Some(CodeAction {
+        title: "Sort fields alphabetically".to_string(),
+        kind: Some(CodeActionKind::REFACTOR),
+        diagnostics: None,
+        edit: Some(WorkspaceEdit {
+            changes: Some(changes),
+            document_changes: None,
+            change_annotations: None,
+        }),
+        command: None,
+        is_preferred: Some(false),
+        disabled: None,
+        data: None,
+    })
+}
+
+/// Create "Add default value" action for fields without defaults
+fn create_add_default_value_action(
+    uri: &Url,
+    field: &Field,
+) -> Option<async_lsp::lsp_types::CodeAction> {
+    use async_lsp::lsp_types::{CodeAction, CodeActionKind, TextEdit, WorkspaceEdit};
+    use std::collections::HashMap;
+
+    // Determine appropriate default value based on type
+    let default_value = get_default_for_type(&field.field_type)?;
+    
+    let type_range = field.type_range.as_ref()?;
+    
+    // Insert after the type field
+    let insert_position = Position {
+        line: type_range.end.line,
+        character: type_range.end.character,
+    };
+    
+    let insert_text = format!(", \"default\": {}", default_value);
+    
+    let mut changes = HashMap::new();
+    changes.insert(
+        uri.clone(),
+        vec![TextEdit {
+            range: Range {
+                start: insert_position,
+                end: insert_position,
+            },
+            new_text: insert_text,
+        }],
+    );
+
+    Some(CodeAction {
+        title: format!("Add default value for '{}'", field.name),
+        kind: Some(CodeActionKind::REFACTOR),
+        diagnostics: None,
+        edit: Some(WorkspaceEdit {
+            changes: Some(changes),
+            document_changes: None,
+            change_annotations: None,
+        }),
+        command: None,
+        is_preferred: Some(false),
+        disabled: None,
+        data: None,
+    })
+}
+
+/// Get a sensible default value for an Avro type
+fn get_default_for_type(avro_type: &AvroType) -> Option<String> {
+    match avro_type {
+        AvroType::Primitive(prim) => match prim {
+            crate::schema::PrimitiveType::Null => Some("null".to_string()),
+            crate::schema::PrimitiveType::Boolean => Some("false".to_string()),
+            crate::schema::PrimitiveType::Int => Some("0".to_string()),
+            crate::schema::PrimitiveType::Long => Some("0".to_string()),
+            crate::schema::PrimitiveType::Float => Some("0.0".to_string()),
+            crate::schema::PrimitiveType::Double => Some("0.0".to_string()),
+            crate::schema::PrimitiveType::Bytes => Some("\"\"".to_string()),
+            crate::schema::PrimitiveType::String => Some("\"\"".to_string()),
+        },
+        AvroType::Array(_) => Some("[]".to_string()),
+        AvroType::Map(_) => Some("{}".to_string()),
+        AvroType::Union(types) => {
+            // For unions, use the first type's default
+            types.first().and_then(get_default_for_type)
+        }
+        // For complex types (Record, Enum, Fixed) and TypeRefs, don't provide defaults
+        // as they require more context
+        _ => None,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -552,9 +726,178 @@ mod tests {
             let make_nullable = actions
                 .iter()
                 .find(|a| a.title.contains("Make") && a.title.contains("nullable"));
+
             assert!(
                 make_nullable.is_none(),
-                "Should not have 'Make nullable' for union types"
+                "Should not offer 'Make nullable' for union types"
+            );
+        }
+    }
+
+    #[test]
+    fn test_sort_fields_alphabetically() {
+        let schema_text = r#"{
+  "type": "record",
+  "name": "User",
+  "fields": [
+    {"name": "zipcode", "type": "string"},
+    {"name": "age", "type": "int"},
+    {"name": "name", "type": "string"}
+  ]
+}"#;
+
+        let mut parser = AvroParser::new();
+        let schema = parser.parse(schema_text).expect("Should parse");
+        let uri = Url::parse("file:///test.avsc").unwrap();
+
+        // Position on the record definition
+        let position = Position {
+            line: 2,
+            character: 12,
+        };
+
+        let actions = get_code_actions(
+            &schema,
+            &uri,
+            Range {
+                start: position,
+                end: position,
+            },
+        );
+
+        assert!(actions.is_some(), "Should have code actions");
+        let actions = actions.unwrap();
+
+        let sort_action = actions
+            .iter()
+            .find(|a| a.title == "Sort fields alphabetically");
+
+        assert!(
+            sort_action.is_some(),
+            "Should have 'Sort fields alphabetically' action"
+        );
+    }
+
+    #[test]
+    fn test_no_sort_action_when_already_sorted() {
+        let schema_text = r#"{
+  "type": "record",
+  "name": "User",
+  "fields": [
+    {"name": "age", "type": "int"},
+    {"name": "name", "type": "string"},
+    {"name": "zipcode", "type": "string"}
+  ]
+}"#;
+
+        let mut parser = AvroParser::new();
+        let schema = parser.parse(schema_text).expect("Should parse");
+        let uri = Url::parse("file:///test.avsc").unwrap();
+
+        let position = Position {
+            line: 2,
+            character: 12,
+        };
+
+        let actions = get_code_actions(
+            &schema,
+            &uri,
+            Range {
+                start: position,
+                end: position,
+            },
+        );
+
+        if let Some(actions) = actions {
+            let sort_action = actions
+                .iter()
+                .find(|a| a.title == "Sort fields alphabetically");
+            
+            assert!(
+                sort_action.is_none(),
+                "Should not have sort action when fields are already sorted"
+            );
+        }
+    }
+
+    #[test]
+    fn test_add_default_value_to_field() {
+        let schema_text = r#"{
+  "type": "record",
+  "name": "User",
+  "fields": [
+    {"name": "age", "type": "int"}
+  ]
+}"#;
+
+        let mut parser = AvroParser::new();
+        let schema = parser.parse(schema_text).expect("Should parse");
+        let uri = Url::parse("file:///test.avsc").unwrap();
+
+        // Position on the field (on "age")
+        let position = Position {
+            line: 4,
+            character: 15,
+        };
+
+        let actions = get_code_actions(
+            &schema,
+            &uri,
+            Range {
+                start: position,
+                end: position,
+            },
+        );
+
+        assert!(actions.is_some(), "Should have code actions");
+        let actions = actions.unwrap();
+
+        let add_default = actions
+            .iter()
+            .find(|a| a.title.contains("Add default value"));
+
+        assert!(
+            add_default.is_some(),
+            "Should have 'Add default value' action"
+        );
+    }
+
+    #[test]
+    fn test_no_add_default_when_default_exists() {
+        let schema_text = r#"{
+  "type": "record",
+  "name": "User",
+  "fields": [
+    {"name": "age", "type": "int", "default": 0}
+  ]
+}"#;
+
+        let mut parser = AvroParser::new();
+        let schema = parser.parse(schema_text).expect("Should parse");
+        let uri = Url::parse("file:///test.avsc").unwrap();
+
+        let position = Position {
+            line: 4,
+            character: 15,
+        };
+
+        let actions = get_code_actions(
+            &schema,
+            &uri,
+            Range {
+                start: position,
+                end: position,
+            },
+        );
+
+        if let Some(actions) = actions {
+            let add_default = actions
+                .iter()
+                .find(|a| a.title.contains("Add default value"));
+            
+            assert!(
+                add_default.is_none(),
+                "Should not have 'Add default value' when default already exists"
             );
         }
     }

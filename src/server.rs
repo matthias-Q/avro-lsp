@@ -34,7 +34,25 @@ impl LanguageServer for AvroLanguageServer {
         tracing::info!("Initializing avro-lsp server");
         tracing::debug!("Client capabilities: {:?}", params.capabilities);
 
+        // Get workspace root - prefer workspace_folders over deprecated root_uri
+        let root_uri = if let Some(folders) = &params.workspace_folders {
+            folders.first().map(|f| f.uri.clone())
+        } else {
+            #[allow(deprecated)]
+            params.root_uri.clone()
+        };
+
+        let state = self.state.clone();
+
         Box::pin(async move {
+            // Initialize workspace in background
+            if let Some(uri) = root_uri.clone() {
+                tracing::info!("Workspace root: {}", uri);
+                if let Err(e) = state.initialize_workspace(Some(uri)).await {
+                    tracing::error!("Failed to initialize workspace: {}", e);
+                }
+            }
+
             Ok(InitializeResult {
                 capabilities: ServerCapabilities {
                     text_document_sync: Some(TextDocumentSyncCapability::Options(
@@ -91,6 +109,7 @@ impl LanguageServer for AvroLanguageServer {
                     })),
                     references_provider: Some(OneOf::Left(true)),
                     inlay_hint_provider: Some(OneOf::Left(true)),
+                    folding_range_provider: Some(FoldingRangeProviderCapability::Simple(true)),
                     ..Default::default()
                 },
                 server_info: Some(ServerInfo {
@@ -394,6 +413,24 @@ impl LanguageServer for AvroLanguageServer {
         Box::pin(async move {
             match state.get_inlay_hints(&uri).await {
                 Some(hints) => Ok(Some(hints)),
+                None => Ok(None),
+            }
+        })
+    }
+
+    fn folding_range(
+        &mut self,
+        params: FoldingRangeParams,
+    ) -> BoxFuture<'static, Result<Option<Vec<FoldingRange>>, Self::Error>> {
+        let uri = params.text_document.uri;
+
+        tracing::debug!("Folding range request for {}", uri);
+
+        let state = self.state.clone();
+
+        Box::pin(async move {
+            match state.get_folding_ranges(&uri).await {
+                Some(ranges) => Ok(Some(ranges)),
                 None => Ok(None),
             }
         })

@@ -2,6 +2,7 @@ mod handlers;
 mod schema;
 mod server;
 mod state;
+mod workspace;
 
 use tokio_util::compat::{TokioAsyncReadCompatExt, TokioAsyncWriteCompatExt};
 use tracing_subscriber::{EnvFilter, fmt, prelude::*};
