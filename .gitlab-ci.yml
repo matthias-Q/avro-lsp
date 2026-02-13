@@ -251,8 +251,15 @@ release:
       # Upload VS Code extension
       VSIX_FILE=$(ls artifacts/*.vsix)
       VSIX_NAME=$(basename "$VSIX_FILE")
+      echo "Uploading VSIX: $VSIX_NAME"
       curl --header "JOB-TOKEN: ${CI_JOB_TOKEN}" --upload-file "$VSIX_FILE" \
         "${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic/avro-lsp/${CI_COMMIT_TAG}/${VSIX_NAME}"
+      
+      # Store the actual VSIX filename for release assets
+      echo "VSIX_FILENAME=${VSIX_NAME}" >> release.env
+  artifacts:
+    reports:
+      dotenv: release.env
   release:
     tag_name: '$CI_COMMIT_TAG'
     name: 'Release $CI_COMMIT_TAG'
@@ -272,5 +279,5 @@ release:
           url: '${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic/avro-lsp/${CI_COMMIT_TAG}/avro-lsp-darwin-arm64'
           link_type: 'package'
         - name: 'VS Code Extension (.vsix)'
-          url: '${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic/avro-lsp/${CI_COMMIT_TAG}/avro-lsp-${CI_COMMIT_TAG#v}.vsix'
+          url: '${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic/avro-lsp/${CI_COMMIT_TAG}/${VSIX_FILENAME}'
           link_type: 'package'
