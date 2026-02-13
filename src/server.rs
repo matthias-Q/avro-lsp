@@ -85,7 +85,11 @@ impl LanguageServer for AvroLanguageServer {
                     ),
                     document_formatting_provider: Some(OneOf::Left(true)),
                     code_action_provider: Some(CodeActionProviderCapability::Simple(true)),
-                    rename_provider: Some(OneOf::Left(true)),
+                    rename_provider: Some(OneOf::Right(RenameOptions {
+                        prepare_provider: Some(true),
+                        work_done_progress_options: WorkDoneProgressOptions::default(),
+                    })),
+                    references_provider: Some(OneOf::Left(true)),
                     ..Default::default()
                 },
                 server_info: Some(ServerInfo {
@@ -324,6 +328,39 @@ impl LanguageServer for AvroLanguageServer {
 
         Box::pin(async move {
             state.rename(&uri, position, &new_name).await
+        })
+    }
+
+    fn prepare_rename(
+        &mut self,
+        params: TextDocumentPositionParams,
+    ) -> BoxFuture<'static, Result<Option<PrepareRenameResponse>, Self::Error>> {
+        let uri = params.text_document.uri;
+        let position = params.position;
+
+        tracing::debug!("Prepare rename request for {} at {:?}", uri, position);
+
+        let state = self.state.clone();
+
+        Box::pin(async move {
+            state.prepare_rename(&uri, position).await
+        })
+    }
+
+    fn references(
+        &mut self,
+        params: ReferenceParams,
+    ) -> BoxFuture<'static, Result<Option<Vec<Location>>, Self::Error>> {
+        let uri = params.text_document_position.text_document.uri;
+        let position = params.text_document_position.position;
+        let include_declaration = params.context.include_declaration;
+
+        tracing::debug!("Find references request for {} at {:?}", uri, position);
+
+        let state = self.state.clone();
+
+        Box::pin(async move {
+            state.find_references(&uri, position, include_declaration).await
         })
     }
 }

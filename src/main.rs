@@ -7,10 +7,13 @@ use tracing_subscriber::{EnvFilter, fmt, prelude::*};
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() {
-    // Initialize tracing
+    // Initialize tracing - default to INFO, but allow override with RUST_LOG env var
+    let filter = EnvFilter::try_from_default_env()
+        .unwrap_or_else(|_| EnvFilter::new("info"));
+    
     tracing_subscriber::registry()
         .with(fmt::layer().with_writer(std::io::stderr))
-        .with(EnvFilter::from_default_env().add_directive(tracing::Level::INFO.into()))
+        .with(filter)
         .init();
 
     tracing::info!("Starting avro-lsp server");

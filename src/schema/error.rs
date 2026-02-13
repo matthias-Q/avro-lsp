@@ -1,3 +1,4 @@
+use async_lsp::lsp_types::Range;
 use thiserror::Error;
 
 #[derive(Error, Debug)]
@@ -7,6 +8,13 @@ pub enum SchemaError {
 
     #[error("Missing required field: {0}")]
     MissingField(String),
+
+    #[error("Missing required field '{field}' in {context}")]
+    MissingFieldWithContext {
+        field: String,
+        context: String,
+        range: Option<Range>,
+    },
 
     #[error("Invalid type: expected {expected}, found {found}")]
     InvalidType { expected: String, found: String },

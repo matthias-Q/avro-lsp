@@ -182,15 +182,26 @@ pub fn parse_json(input: &str) -> Result<JsonValue, String> {
             // Check if we consumed all input
             let remaining_trimmed = remaining.fragment().trim();
             if !remaining_trimmed.is_empty() {
+                let position = span_to_position(remaining);
                 Err(format!(
-                    "Unexpected trailing content: {}",
-                    remaining_trimmed
+                    "Parse error at line {}, column {}: Unexpected trailing content",
+                    position.line + 1,
+                    position.character + 1
                 ))
             } else {
                 Ok(value)
             }
         }
-        Err(e) => Err(format!("Parse error: {}", e)),
+        Err(nom::Err::Error(e)) | Err(nom::Err::Failure(e)) => {
+            // Extract position from nom error
+            let position = span_to_position(e.input);
+            Err(format!(
+                "Parse error at line {}, column {}",
+                position.line + 1,
+                position.character + 1
+            ))
+        }
+        Err(nom::Err::Incomplete(_)) => Err("Parse error: incomplete input".to_string()),
     }
 }
 

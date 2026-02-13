@@ -87,10 +87,7 @@ impl AvroParser {
         let aliases = self.get_optional_string_array(obj, "aliases");
 
         // Get name range
-        let name_range = obj
-            .get("name")
-            .map(|v| v.range())
-            .or(Some(record_range));
+        let name_range = obj.get("name").map(|v| v.range()).or(Some(record_range));
 
         let fields_value = obj
             .get("fields")
@@ -113,9 +110,14 @@ impl AvroParser {
                 })?;
 
             let field_name = self.get_required_string(field_obj, "name")?;
-            let field_type_value = field_obj
-                .get("type")
-                .ok_or_else(|| SchemaError::MissingField("type".to_string()))?;
+            let field_type_value =
+                field_obj
+                    .get("type")
+                    .ok_or_else(|| SchemaError::MissingFieldWithContext {
+                        field: "type".to_string(),
+                        context: format!("field '{}'", field_name),
+                        range: Some(field_value.range()),
+                    })?;
             let field_type = self.parse_type(field_type_value)?;
 
             // Get position ranges
@@ -168,10 +170,7 @@ impl AvroParser {
         let aliases = self.get_optional_string_array(obj, "aliases");
 
         // Get name range
-        let name_range = obj
-            .get("name")
-            .map(|v| v.range())
-            .or(Some(enum_range));
+        let name_range = obj.get("name").map(|v| v.range()).or(Some(enum_range));
 
         let symbols = obj
             .get("symbols")
@@ -254,10 +253,7 @@ impl AvroParser {
         let aliases = self.get_optional_string_array(obj, "aliases");
 
         // Get name range
-        let name_range = obj
-            .get("name")
-            .map(|v| v.range())
-            .or(Some(fixed_range));
+        let name_range = obj.get("name").map(|v| v.range()).or(Some(fixed_range));
 
         let size = obj
             .get("size")

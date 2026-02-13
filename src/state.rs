@@ -220,21 +220,52 @@ impl ServerState {
         let schema = match parser.parse(text) {
             Ok(schema) => schema,
             Err(e) => {
-                // Parse error - try to find position from serde_json error
-                let position = self.extract_error_position(&e.to_string(), text);
+                // Parse error - try to find position from error context or serde_json error
+                let error_msg = e.to_string();
+                tracing::debug!("JSON parse error: {}", error_msg);
+                
+                // Check if error has position information embedded
+                let (position_range, adjusted_msg) = match &e {
+                    SchemaError::MissingFieldWithContext { range, field, context, .. } => {
+                        if let Some(r) = range {
+                            tracing::debug!("Using position from error context: {:?}", r);
+                            let msg = format!("Missing required field '{}' in {}", field, context);
+                            (*r, msg)
+                        } else {
+                            let (pos, was_adjusted) = self.extract_error_position_with_context(&error_msg, text);
+                            let range = Range {
+                                start: pos,
+                                end: Position {
+                                    line: pos.line,
+                                    character: pos.character + 1,
+                                },
+                            };
+                            let msg = self.improve_error_message(&error_msg, &pos, was_adjusted);
+                            (range, msg)
+                        }
+                    }
+                    _ => {
+                        let (pos, was_adjusted) = self.extract_error_position_with_context(&error_msg, text);
+                        let range = Range {
+                            start: pos,
+                            end: Position {
+                                line: pos.line,
+                                character: pos.character + 1,
+                            },
+                        };
+                        let msg = self.improve_error_message(&error_msg, &pos, was_adjusted);
+                        (range, msg)
+                    }
+                };
+                
+                tracing::debug!("Extracted position range: {:?}", position_range);
                 diagnostics.push(Diagnostic {
-                    range: Range {
-                        start: position,
-                        end: Position {
-                            line: position.line,
-                            character: position.character + 1,
-                        },
-                    },
+                    range: position_range,
                     severity: Some(DiagnosticSeverity::ERROR),
                     code: None,
                     code_description: None,
                     source: Some("avro-lsp".to_string()),
-                    message: format!("Parse error: {}", e),
+                    message: adjusted_msg,
                     related_information: None,
                     tags: None,
                     data: None,
@@ -243,20 +274,14 @@ impl ServerState {
             }
         };
 
-        // Try to validate
+        // Try to validate - now using AST-based error position finding
         let validator = AvroValidator::new();
         if let Err(e) = validator.validate(&schema) {
-            // Try to find the position of the error in the text
-            let position = self.find_error_position(&e, text);
+            // Try to find the position of the error using AST
+            let position_range = self.find_error_position_in_ast(&e, &schema);
 
             diagnostics.push(Diagnostic {
-                range: Range {
-                    start: position,
-                    end: Position {
-                        line: position.line,
-                        character: position.character + 1,
-                    },
-                },
+                range: position_range,
                 severity: Some(DiagnosticSeverity::ERROR),
                 code: None,
                 code_description: None,
@@ -271,35 +296,115 @@ impl ServerState {
         diagnostics
     }
 
-    /// Find the position of a validation error in the source text
-    fn find_error_position(&self, error: &SchemaError, text: &str) -> Position {
-        // Try to find the relevant token in the text based on error type
-        let search_term = match error {
-            SchemaError::InvalidName(name) => Some(format!("\"{}\"", name)),
-            SchemaError::InvalidNamespace(ns) => Some(format!("\"{}\"", ns)),
-            SchemaError::UnknownTypeReference(type_ref) => Some(format!("\"{}\"", type_ref)),
-            SchemaError::DuplicateSymbol(symbol) => Some(format!("\"{}\"", symbol)),
-            SchemaError::NestedUnion => Some("[[".to_string()), // Look for nested arrays
-            SchemaError::DuplicateUnionType(_) => None,
-            SchemaError::MissingField(field) => Some(format!("\"{}\"", field)),
-            _ => None,
-        };
-
-        if let Some(term) = search_term
-            && let Some(offset) = text.find(&term)
-        {
-            return self.offset_to_position(text, offset);
+    /// Find the position of a validation error using AST
+    fn find_error_position_in_ast(&self, error: &SchemaError, schema: &AvroSchema) -> Range {
+        // Helper to search for error location in AST
+        fn search_type(avro_type: &AvroType, error: &SchemaError) -> Option<Range> {
+            match error {
+                SchemaError::InvalidName(name) => {
+                    tracing::debug!("Searching for InvalidName: {}", name);
+                    // Search for a Record/Enum/Fixed with this name
+                    match avro_type {
+                        AvroType::Record(record) if record.name == *name => {
+                            tracing::debug!("Found record with invalid name at {:?}", record.name_range);
+                            record.name_range
+                        }
+                        AvroType::Enum(enum_schema) if enum_schema.name == *name => {
+                            tracing::debug!("Found enum with invalid name at {:?}", enum_schema.name_range);
+                            enum_schema.name_range
+                        }
+                        AvroType::Fixed(fixed) if fixed.name == *name => {
+                            tracing::debug!("Found fixed with invalid name at {:?}", fixed.name_range);
+                            fixed.name_range
+                        }
+                        AvroType::Record(record) => {
+                            tracing::debug!("Searching in record: {}", record.name);
+                            // Check fields
+                            for field in &record.fields {
+                                if field.name == *name {
+                                    tracing::debug!("Found field with invalid name '{}' at {:?}", field.name, field.name_range);
+                                    return field.name_range;
+                                }
+                                if let Some(range) = search_type(&field.field_type, error) {
+                                    return Some(range);
+                                }
+                            }
+                            None
+                        }
+                        AvroType::Array(array) => search_type(&array.items, error),
+                        AvroType::Map(map) => search_type(&map.values, error),
+                        AvroType::Union(types) => {
+                            for t in types {
+                                if let Some(range) = search_type(t, error) {
+                                    return Some(range);
+                                }
+                            }
+                            None
+                        }
+                        _ => None,
+                    }
+                }
+                SchemaError::UnknownTypeReference(type_name) => {
+                    tracing::debug!("Searching for UnknownTypeReference: {}", type_name);
+                    // Search for TypeRef with this name
+                    match avro_type {
+                        AvroType::TypeRef(type_ref) if type_ref.name == *type_name => {
+                            tracing::debug!("Found TypeRef with unknown type at {:?}", type_ref.range);
+                            type_ref.range
+                        }
+                        AvroType::Record(record) => {
+                            for field in &record.fields {
+                                if let Some(range) = search_type(&field.field_type, error) {
+                                    return Some(range);
+                                }
+                            }
+                            None
+                        }
+                        AvroType::Array(array) => search_type(&array.items, error),
+                        AvroType::Map(map) => search_type(&map.values, error),
+                        AvroType::Union(types) => {
+                            for t in types {
+                                if let Some(range) = search_type(t, error) {
+                                    return Some(range);
+                                }
+                            }
+                            None
+                        }
+                        _ => None,
+                    }
+                }
+                _ => {
+                    tracing::debug!("Unsupported error type for position finding: {:?}", error);
+                    None
+                }
+            }
         }
 
-        // Default to line 0 if we can't find it
-        Position {
-            line: 0,
-            character: 0,
+        // Search for the error in the AST
+        if let Some(range) = search_type(&schema.root, error) {
+            tracing::debug!("Found error position: {:?}", range);
+            return range;
+        }
+
+        tracing::warn!("Could not find error position in AST, defaulting to (0,0)");
+        // Default fallback
+        Range {
+            start: Position {
+                line: 0,
+                character: 0,
+            },
+            end: Position {
+                line: 0,
+                character: 1,
+            },
         }
     }
 
-    /// Extract position from serde_json error message (e.g., "line 2, column 5")
-    fn extract_error_position(&self, error_msg: &str, _text: &str) -> Position {
+    /// Find the position of a validation error in the source text
+
+    /// Extract position from error message and adjust for JSON syntax errors
+    /// Returns (Position, was_adjusted)
+    fn extract_error_position_with_context(&self, error_msg: &str, text: &str) -> (Position, bool) {
         // serde_json errors often contain "line X, column Y"
         if let Some(line_pos) = error_msg.find("line ")
             && let Some(col_pos) = error_msg.find("column ")
@@ -316,15 +421,53 @@ impl ServerState {
                 .unwrap_or(col_str.len());
             let col_num: u32 = col_str[..col_end].parse().unwrap_or(0);
 
-            return Position {
+            let mut position = Position {
                 line: line_num.saturating_sub(1), // LSP is 0-indexed
                 character: col_num.saturating_sub(1),
             };
+
+            let mut was_adjusted = false;
+
+            // For JSON parse errors at the start of a line (column near 0),
+            // adjust to the end of the previous line (likely missing comma/brace)
+            if position.character <= 2 && position.line > 0 {
+                let lines: Vec<&str> = text.lines().collect();
+                if let Some(prev_line) = lines.get(position.line as usize - 1) {
+                    // Point to the end of the previous line
+                    position = Position {
+                        line: position.line - 1,
+                        character: prev_line.trim_end().len() as u32,
+                    };
+                    was_adjusted = true;
+                    tracing::debug!("Adjusted JSON parse error position to end of previous line: {:?}", position);
+                }
+            }
+
+            return (position, was_adjusted);
         }
 
-        Position {
-            line: 0,
-            character: 0,
+        (Position { line: 0, character: 0 }, false)
+    }
+
+    /// Improve error message with correct position and helpful hints
+    fn improve_error_message(&self, original_msg: &str, pos: &Position, was_adjusted: bool) -> String {
+        // Extract the base error message without position info
+        let base_msg = if let Some(colon_pos) = original_msg.find(": ") {
+            &original_msg[colon_pos + 2..]
+        } else {
+            original_msg
+        };
+
+        // Build the message with correct position (1-indexed for display)
+        let location = format!("line {}, column {}", pos.line + 1, pos.character + 1);
+        
+        // Add helpful hints based on error type and adjustment
+        if was_adjusted {
+            format!("JSON syntax error at {}: Expected comma or closing brace", location)
+        } else if base_msg.contains("Unexpected trailing content") {
+            format!("JSON syntax error at {}: {}", location, base_msg)
+        } else {
+            format!("JSON parse error at {}", location)
         }
     }
 
@@ -1160,6 +1303,18 @@ impl ServerState {
         use async_lsp::lsp_types::{TextEdit, WorkspaceEdit};
         use std::collections::HashMap;
 
+        // Validate the new name follows Avro naming rules
+        let name_regex = regex::Regex::new(r"^[A-Za-z_][A-Za-z0-9_]*$").unwrap();
+        if !name_regex.is_match(new_name) {
+            return Err(ResponseError::new(
+                async_lsp::ErrorCode::INVALID_PARAMS,
+                format!(
+                    "Invalid name '{}'. Names must start with [A-Za-z_] and contain only [A-Za-z0-9_]",
+                    new_name
+                ),
+            ));
+        }
+
         let state = self.inner.read().await;
         let doc = state.documents.get(uri);
         
@@ -1187,8 +1342,17 @@ impl ServerState {
                 // Check if cursor is on the name specifically
                 if let Some(name_range) = &record.name_range
                     && Self::position_in_range(position, name_range) {
-                        // Rename the record: update declaration and all references
                         let old_name = &record.name;
+                        
+                        // Check if new name conflicts with existing types (except itself)
+                        if old_name != new_name && schema.named_types.contains_key(new_name) {
+                            return Err(ResponseError::new(
+                                async_lsp::ErrorCode::INVALID_PARAMS,
+                                format!("A type named '{}' already exists", new_name),
+                            ));
+                        }
+                        
+                        // Rename the record: update declaration and all references
                         self.collect_type_rename_edits(schema, old_name, new_name, &mut edits);
                     }
             }
@@ -1196,8 +1360,17 @@ impl ServerState {
                 // Check if cursor is on the name specifically
                 if let Some(name_range) = &enum_schema.name_range
                     && Self::position_in_range(position, name_range) {
-                        // Rename the enum: update declaration and all references
                         let old_name = &enum_schema.name;
+                        
+                        // Check if new name conflicts with existing types (except itself)
+                        if old_name != new_name && schema.named_types.contains_key(new_name) {
+                            return Err(ResponseError::new(
+                                async_lsp::ErrorCode::INVALID_PARAMS,
+                                format!("A type named '{}' already exists", new_name),
+                            ));
+                        }
+                        
+                        // Rename the enum: update declaration and all references
                         self.collect_type_rename_edits(schema, old_name, new_name, &mut edits);
                     }
             }
@@ -1205,6 +1378,16 @@ impl ServerState {
                 // Check if cursor is on the field name specifically
                 if let Some(name_range) = &field.name_range
                     && Self::position_in_range(position, name_range) {
+                        // For fields, we need to check if the new name conflicts with other fields in the same record
+                        // Find the parent record to check for conflicts
+                        let has_conflict = self.check_field_name_conflict(schema, field, new_name);
+                        if has_conflict {
+                            return Err(ResponseError::new(
+                                async_lsp::ErrorCode::INVALID_PARAMS,
+                                format!("A field named '{}' already exists in this record", new_name),
+                            ));
+                        }
+                        
                         // Rename the field: only update this field's name
                         edits.push(TextEdit {
                             range: *name_range,
@@ -1212,9 +1395,28 @@ impl ServerState {
                         });
                     }
             }
-            AstNode::FieldType(_) => {
-                // Can't rename a type reference from the usage site
-                return Ok(None);
+            AstNode::FieldType(field) => {
+                // Check if the field's type is a TypeRef and cursor is on it
+                if let AvroType::TypeRef(type_ref) = field.field_type.as_ref()
+                    && let Some(type_range) = &type_ref.range
+                    && Self::position_in_range(position, type_range) {
+                        let old_name = &type_ref.name;
+                        
+                        // Check if new name conflicts with existing types (except itself)
+                        if old_name != new_name && schema.named_types.contains_key(new_name) {
+                            return Err(ResponseError::new(
+                                async_lsp::ErrorCode::INVALID_PARAMS,
+                                format!("A type named '{}' already exists", new_name),
+                            ));
+                        }
+                        
+                        // Rename the type: update declaration and all references
+                        self.collect_type_rename_edits(schema, old_name, new_name, &mut edits);
+                    } else {
+                        // Cursor is on field type but not on a simple TypeRef
+                        // Could be on a union, array, etc. - not supported yet
+                        return Ok(None);
+                    }
             }
         }
 
@@ -1230,6 +1432,287 @@ impl ServerState {
             document_changes: None,
             change_annotations: None,
         }))
+    }
+
+    /// Check if a field name would conflict with other fields in the same record
+    fn check_field_name_conflict(&self, schema: &AvroSchema, target_field: &Field, new_name: &str) -> bool {
+        // Helper to find the parent record containing this field
+        fn find_parent_record<'a>(avro_type: &'a AvroType, target_field: &Field) -> Option<&'a RecordSchema> {
+            match avro_type {
+                AvroType::Record(record) => {
+                    // Check if this record contains the target field
+                    for field in &record.fields {
+                        if std::ptr::eq(field, target_field) {
+                            return Some(record);
+                        }
+                    }
+                    // Check nested fields
+                    for field in &record.fields {
+                        if let Some(parent) = find_parent_record(&field.field_type, target_field) {
+                            return Some(parent);
+                        }
+                    }
+                    None
+                }
+                AvroType::Array(array) => find_parent_record(&array.items, target_field),
+                AvroType::Map(map) => find_parent_record(&map.values, target_field),
+                AvroType::Union(types) => {
+                    for t in types {
+                        if let Some(parent) = find_parent_record(t, target_field) {
+                            return Some(parent);
+                        }
+                    }
+                    None
+                }
+                _ => None,
+            }
+        }
+
+        if let Some(parent_record) = find_parent_record(&schema.root, target_field) {
+            // Check if any other field (not the target field) has the new name
+            for field in &parent_record.fields {
+                if !std::ptr::eq(field, target_field) && field.name == new_name {
+                    return true;
+                }
+            }
+        }
+
+        false
+    }
+
+    /// Prepare for rename - validate that rename is possible at this position
+    pub async fn prepare_rename(
+        &self,
+        uri: &Url,
+        position: Position,
+    ) -> Result<Option<async_lsp::lsp_types::PrepareRenameResponse>, ResponseError> {
+        use async_lsp::lsp_types::PrepareRenameResponse;
+
+        let state = self.inner.read().await;
+        let doc = state.documents.get(uri);
+        
+        let doc = match doc {
+            Some(d) => d,
+            None => return Ok(None),
+        };
+
+        let schema = match &doc.schema {
+            Some(s) => s,
+            None => return Ok(None),
+        };
+
+        // Find what symbol we're trying to rename
+        let node = match find_node_at_position(schema, position) {
+            Some(n) => n,
+            None => return Ok(None),
+        };
+
+        // Check if the position is valid for renaming and return the range + placeholder
+        match node {
+            AstNode::RecordDefinition(record) => {
+                if let Some(name_range) = &record.name_range
+                    && Self::position_in_range(position, name_range) {
+                        return Ok(Some(PrepareRenameResponse::RangeWithPlaceholder {
+                            range: *name_range,
+                            placeholder: record.name.clone(),
+                        }));
+                    }
+            }
+            AstNode::EnumDefinition(enum_schema) => {
+                if let Some(name_range) = &enum_schema.name_range
+                    && Self::position_in_range(position, name_range) {
+                        return Ok(Some(PrepareRenameResponse::RangeWithPlaceholder {
+                            range: *name_range,
+                            placeholder: enum_schema.name.clone(),
+                        }));
+                    }
+            }
+            AstNode::Field(field) => {
+                if let Some(name_range) = &field.name_range
+                    && Self::position_in_range(position, name_range) {
+                        return Ok(Some(PrepareRenameResponse::RangeWithPlaceholder {
+                            range: *name_range,
+                            placeholder: field.name.clone(),
+                        }));
+                    }
+            }
+            AstNode::FieldType(field) => {
+                // Check if the field's type is a TypeRef and cursor is on it
+                if let AvroType::TypeRef(type_ref) = field.field_type.as_ref()
+                    && let Some(type_range) = &type_ref.range
+                    && Self::position_in_range(position, type_range) {
+                        return Ok(Some(PrepareRenameResponse::RangeWithPlaceholder {
+                            range: *type_range,
+                            placeholder: type_ref.name.clone(),
+                        }));
+                    }
+            }
+        }
+
+        Ok(None)
+    }
+
+    /// Find all references to a symbol
+    pub async fn find_references(
+        &self,
+        uri: &Url,
+        position: Position,
+        include_declaration: bool,
+    ) -> Result<Option<Vec<async_lsp::lsp_types::Location>>, ResponseError> {
+        use async_lsp::lsp_types::Location;
+
+        let state = self.inner.read().await;
+        let doc = state.documents.get(uri);
+        
+        let doc = match doc {
+            Some(d) => d,
+            None => return Ok(None),
+        };
+
+        let schema = match &doc.schema {
+            Some(s) => s,
+            None => return Ok(None),
+        };
+
+        // Find what symbol we're looking for references to
+        let node = match find_node_at_position(schema, position) {
+            Some(n) => n,
+            None => return Ok(None),
+        };
+
+        let mut locations = Vec::new();
+
+        match node {
+            AstNode::RecordDefinition(record) => {
+                // Check if cursor is on the name
+                if let Some(name_range) = &record.name_range
+                    && Self::position_in_range(position, name_range) {
+                        let type_name = &record.name;
+                        self.collect_type_references(schema, type_name, uri, include_declaration, &mut locations);
+                    }
+            }
+            AstNode::EnumDefinition(enum_schema) => {
+                // Check if cursor is on the name
+                if let Some(name_range) = &enum_schema.name_range
+                    && Self::position_in_range(position, name_range) {
+                        let type_name = &enum_schema.name;
+                        self.collect_type_references(schema, type_name, uri, include_declaration, &mut locations);
+                    }
+            }
+            AstNode::Field(field) => {
+                // For fields, we only have one location (the field name itself)
+                if let Some(name_range) = &field.name_range
+                    && Self::position_in_range(position, name_range) {
+                        locations.push(Location {
+                            uri: uri.clone(),
+                            range: *name_range,
+                        });
+                    }
+            }
+            AstNode::FieldType(field) => {
+                // Check if the field's type is a TypeRef and cursor is on it
+                if let AvroType::TypeRef(type_ref) = field.field_type.as_ref()
+                    && let Some(type_range) = &type_ref.range
+                    && Self::position_in_range(position, type_range) {
+                        // Find all references to this type
+                        let type_name = &type_ref.name;
+                        self.collect_type_references(schema, type_name, uri, include_declaration, &mut locations);
+                    }
+            }
+        }
+
+        if locations.is_empty() {
+            return Ok(None);
+        }
+
+        Ok(Some(locations))
+    }
+
+    /// Collect all references to a type (record/enum/fixed)
+    fn collect_type_references(
+        &self,
+        schema: &AvroSchema,
+        type_name: &str,
+        uri: &Url,
+        include_declaration: bool,
+        locations: &mut Vec<async_lsp::lsp_types::Location>,
+    ) {
+        use async_lsp::lsp_types::Location;
+
+        // Helper to find references in an AvroType
+        fn find_references_in_type(
+            avro_type: &AvroType,
+            type_name: &str,
+            uri: &Url,
+            include_declaration: bool,
+            locations: &mut Vec<Location>,
+        ) {
+            match avro_type {
+                AvroType::Record(record) => {
+                    // Add the declaration if requested
+                    if include_declaration && record.name == type_name {
+                        if let Some(name_range) = &record.name_range {
+                            locations.push(Location {
+                                uri: uri.clone(),
+                                range: *name_range,
+                            });
+                        }
+                    }
+                    // Check all fields for type references
+                    for field in &record.fields {
+                        find_references_in_type(&field.field_type, type_name, uri, include_declaration, locations);
+                    }
+                }
+                AvroType::Enum(enum_schema) => {
+                    // Add the declaration if requested
+                    if include_declaration && enum_schema.name == type_name {
+                        if let Some(name_range) = &enum_schema.name_range {
+                            locations.push(Location {
+                                uri: uri.clone(),
+                                range: *name_range,
+                            });
+                        }
+                    }
+                }
+                AvroType::Fixed(fixed) => {
+                    // Add the declaration if requested
+                    if include_declaration && fixed.name == type_name {
+                        if let Some(name_range) = &fixed.name_range {
+                            locations.push(Location {
+                                uri: uri.clone(),
+                                range: *name_range,
+                            });
+                        }
+                    }
+                }
+                AvroType::TypeRef(type_ref) => {
+                    // This is a reference to a named type
+                    if type_ref.name == type_name {
+                        if let Some(range) = &type_ref.range {
+                            locations.push(Location {
+                                uri: uri.clone(),
+                                range: *range,
+                            });
+                        }
+                    }
+                }
+                AvroType::Array(array) => {
+                    find_references_in_type(&array.items, type_name, uri, include_declaration, locations);
+                }
+                AvroType::Map(map) => {
+                    find_references_in_type(&map.values, type_name, uri, include_declaration, locations);
+                }
+                AvroType::Union(types) => {
+                    for t in types {
+                        find_references_in_type(t, type_name, uri, include_declaration, locations);
+                    }
+                }
+                AvroType::Primitive(_) => {}
+            }
+        }
+
+        // Search the entire schema for references
+        find_references_in_type(&schema.root, type_name, uri, include_declaration, locations);
     }
 
     /// Collect all edits needed to rename a type (record/enum/fixed)
