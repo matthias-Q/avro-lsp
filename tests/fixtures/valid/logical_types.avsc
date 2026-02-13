@@ -1,0 +1,26 @@
+{
+  "type": "record",
+  "name": "LogicalTypesExample",
+  "fields": [
+    {
+      "name": "decimal_field",
+      "type": {
+        "type": "fixed",
+        "name": "DecimalType",
+        "size": 16,
+        "logicalType": "decimal",
+        "precision": 10,
+        "scale": 2
+      }
+    },
+    {
+      "name": "duration_field",
+      "type": {
+        "type": "fixed",
+        "name": "DurationType",
+        "size": 12,
+        "logicalType": "duration"
+      }
+    }
+  ]
+}

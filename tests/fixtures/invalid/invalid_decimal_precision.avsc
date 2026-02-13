@@ -1,0 +1,15 @@
+{
+  "type": "record",
+  "name": "InvalidDecimal",
+  "fields": [
+    {
+      "name": "decimal_field",
+      "type": {
+        "type": "fixed",
+        "name": "BadDecimal",
+        "size": 16,
+        "logicalType": "decimal"
+      }
+    }
+  ]
+}

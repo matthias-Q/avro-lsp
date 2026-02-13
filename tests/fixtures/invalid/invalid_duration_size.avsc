@@ -1,0 +1,15 @@
+{
+  "type": "record",
+  "name": "BadDurationSize",
+  "fields": [
+    {
+      "name": "elapsed",
+      "type": {
+        "type": "fixed",
+        "name": "BadDuration",
+        "size": 16,
+        "logicalType": "duration"
+      }
+    }
+  ]
+}

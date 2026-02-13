@@ -250,6 +250,7 @@ impl AvroParser {
     ) -> Result<AvroType> {
         let name = self.get_required_string(obj, "name")?;
         let namespace = self.get_optional_string(obj, "namespace");
+        let doc = self.get_optional_string(obj, "doc");
         let aliases = self.get_optional_string_array(obj, "aliases");
 
         // Get name range
@@ -263,12 +264,30 @@ impl AvroParser {
             })
             .ok_or_else(|| SchemaError::MissingField("size".to_string()))?;
 
+        // Parse logical type and related attributes
+        let logical_type = obj
+            .get("logicalType")
+            .and_then(|v| v.as_string())
+            .map(String::from);
+        let precision = obj.get("precision").and_then(|v| match v {
+            JsonValue::Number(n, _) => Some(*n as usize),
+            _ => None,
+        });
+        let scale = obj.get("scale").and_then(|v| match v {
+            JsonValue::Number(n, _) => Some(*n as usize),
+            _ => None,
+        });
+
         let fixed = FixedSchema {
             type_name: "fixed".to_string(),
             name: name.clone(),
             namespace,
+            doc,
             aliases,
             size,
+            logical_type,
+            precision,
+            scale,
             range: Some(fixed_range),
             name_range,
         };

@@ -14,6 +14,8 @@ A Language Server Protocol (LSP) implementation for Apache Avro schema files (`.
   - Enum symbol uniqueness
   - Union constraint validation (no duplicate types, no nested unions)
   - Primitive type validation
+  - **Default value validation** - Ensures defaults match field types
+  - **Logical types support** - Validates decimal (precision/scale), duration, and other logical types
 - **Precise error positioning** - Errors shown at exact locations with clear messages
 
 ### Code Intelligence
@@ -37,6 +39,16 @@ A Language Server Protocol (LSP) implementation for Apache Avro schema files (`.
   - Jump to type definitions with Ctrl+Click (Cmd+Click on macOS)
   - Works for records, enums, and fixed types
   - Quick navigation within large schemas
+
+- **Find references** - Locate all usages of a type:
+  - Find where types are referenced throughout the schema
+  - See all uses of records, enums, and fixed types
+  - Understand type dependencies
+
+- **Rename symbol** - Safely rename types:
+  - Rename types and update all references automatically
+  - Preview changes before applying
+  - Maintains schema consistency
 
 - **Document symbols** - Hierarchical outline view:
   - See all types and fields at a glance
@@ -332,12 +344,12 @@ The LSP validates the following aspects of Avro schemas:
 
 ### Phase 3C (Complete)
 - [x] Code actions (scaffolding, quick fixes)
+- [x] Find references - Find all usages of a type
+- [x] Rename symbol - Safely rename types and update references
 
-### Phase 4 (Future)
-- [ ] Find references - Find all usages of a type
-- [ ] Multi-file support
-- [ ] Refactoring support
-- [ ] Enhanced validation (default values, logical types, etc.)
+### Phase 4 (Complete)
+- [x] Default value validation - Type-checked defaults for all field types
+- [x] Logical types support - decimal, duration, and validation
 
 ## Contributing
 

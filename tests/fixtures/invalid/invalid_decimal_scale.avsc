@@ -1,0 +1,17 @@
+{
+  "type": "record",
+  "name": "BadDecimalScale",
+  "fields": [
+    {
+      "name": "price",
+      "type": {
+        "type": "fixed",
+        "name": "DecimalBadScale",
+        "size": 8,
+        "logicalType": "decimal",
+        "precision": 5,
+        "scale": 10
+      }
+    }
+  ]
+}

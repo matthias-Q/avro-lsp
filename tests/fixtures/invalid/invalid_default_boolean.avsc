@@ -1,0 +1,11 @@
+{
+  "type": "record",
+  "name": "BadBooleanDefault",
+  "fields": [
+    {
+      "name": "flag",
+      "type": "boolean",
+      "default": "yes"
+    }
+  ]
+}

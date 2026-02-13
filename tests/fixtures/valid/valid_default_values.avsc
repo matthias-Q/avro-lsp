@@ -1,0 +1,17 @@
+{
+  "type": "record",
+  "name": "TestDefaults",
+  "fields": [
+    {"name": "nullField", "type": "null", "default": null},
+    {"name": "boolField", "type": "boolean", "default": true},
+    {"name": "intField", "type": "int", "default": 42},
+    {"name": "longField", "type": "long", "default": 1234567890},
+    {"name": "floatField", "type": "float", "default": 3.14},
+    {"name": "doubleField", "type": "double", "default": 2.71828},
+    {"name": "stringField", "type": "string", "default": "hello"},
+    {"name": "bytesField", "type": "bytes", "default": "\u00FF"},
+    {"name": "arrayField", "type": {"type": "array", "items": "int"}, "default": [1, 2, 3]},
+    {"name": "mapField", "type": {"type": "map", "values": "string"}, "default": {"key": "value"}},
+    {"name": "unionField", "type": ["null", "string"], "default": null}
+  ]
+}

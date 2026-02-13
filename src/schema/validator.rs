@@ -63,6 +63,11 @@ impl AvroValidator {
         for field in &record.fields {
             self.validate_name(&field.name)?;
             self.validate_type(&field.field_type, named_types)?;
+
+            // Validate default value if present
+            if let Some(default_value) = &field.default {
+                self.validate_default_value(default_value, &field.field_type, named_types)?;
+            }
         }
 
         Ok(())
@@ -122,6 +127,52 @@ impl AvroValidator {
             ));
         }
 
+        // Validate logical type if present
+        if let Some(logical_type) = &fixed.logical_type {
+            self.validate_logical_type_for_fixed(logical_type, fixed)?;
+        }
+
+        Ok(())
+    }
+
+    fn validate_logical_type_for_fixed(
+        &self,
+        logical_type: &str,
+        fixed: &FixedSchema,
+    ) -> Result<()> {
+        match logical_type {
+            "decimal" => {
+                // Decimal requires precision
+                if fixed.precision.is_none() {
+                    return Err(SchemaError::Custom(
+                        "Decimal logical type requires 'precision' attribute".to_string(),
+                    ));
+                }
+                // Scale is optional but must be <= precision if present
+                if let (Some(precision), Some(scale)) = (fixed.precision, fixed.scale) {
+                    if scale > precision {
+                        return Err(SchemaError::Custom(format!(
+                            "Decimal scale ({}) cannot be greater than precision ({})",
+                            scale, precision
+                        )));
+                    }
+                }
+            }
+            "duration" => {
+                // Duration must be exactly 12 bytes
+                if fixed.size != 12 {
+                    return Err(SchemaError::Custom(
+                        "Duration logical type requires fixed size of 12 bytes".to_string(),
+                    ));
+                }
+            }
+            _ => {
+                return Err(SchemaError::Custom(format!(
+                    "Unknown logical type '{}' for fixed type",
+                    logical_type
+                )));
+            }
+        }
         Ok(())
     }
 
@@ -193,6 +244,128 @@ impl AvroValidator {
                 return Err(SchemaError::InvalidNamespace(namespace.to_string()));
             }
         }
+        Ok(())
+    }
+
+    /// Validate that a default value matches the field's type
+    fn validate_default_value(
+        &self,
+        default: &serde_json::Value,
+        field_type: &AvroType,
+        named_types: &HashMap<String, AvroType>,
+    ) -> Result<()> {
+        use serde_json::Value;
+
+        match field_type {
+            AvroType::Primitive(prim) => match prim {
+                PrimitiveType::Null => {
+                    if !default.is_null() {
+                        return Err(SchemaError::Custom(
+                            "Default value for null type must be null".to_string(),
+                        ));
+                    }
+                }
+                PrimitiveType::Boolean => {
+                    if !default.is_boolean() {
+                        return Err(SchemaError::Custom(
+                            "Default value for boolean type must be true or false".to_string(),
+                        ));
+                    }
+                }
+                PrimitiveType::Int | PrimitiveType::Long => {
+                    if !default.is_number() {
+                        return Err(SchemaError::Custom(format!(
+                            "Default value for {:?} type must be a number",
+                            prim
+                        )));
+                    }
+                }
+                PrimitiveType::Float | PrimitiveType::Double => {
+                    if !default.is_number() {
+                        return Err(SchemaError::Custom(format!(
+                            "Default value for {:?} type must be a number",
+                            prim
+                        )));
+                    }
+                }
+                PrimitiveType::String => {
+                    if !default.is_string() {
+                        return Err(SchemaError::Custom(
+                            "Default value for string type must be a string".to_string(),
+                        ));
+                    }
+                }
+                PrimitiveType::Bytes => {
+                    // Bytes default must be a string (Unicode code points 0-255 mapped to bytes)
+                    if !default.is_string() {
+                        return Err(SchemaError::Custom(
+                            "Default value for bytes type must be a string".to_string(),
+                        ));
+                    }
+                }
+            },
+            AvroType::Record(_) => {
+                if !default.is_object() {
+                    return Err(SchemaError::Custom(
+                        "Default value for record type must be an object".to_string(),
+                    ));
+                }
+            }
+            AvroType::Enum(enum_schema) => {
+                if let Value::String(s) = default {
+                    if !enum_schema.symbols.contains(s) {
+                        return Err(SchemaError::Custom(format!(
+                            "Default value '{}' is not a valid enum symbol",
+                            s
+                        )));
+                    }
+                } else {
+                    return Err(SchemaError::Custom(
+                        "Default value for enum type must be a string".to_string(),
+                    ));
+                }
+            }
+            AvroType::Array(_) => {
+                if !default.is_array() {
+                    return Err(SchemaError::Custom(
+                        "Default value for array type must be an array".to_string(),
+                    ));
+                }
+            }
+            AvroType::Map(_) => {
+                if !default.is_object() {
+                    return Err(SchemaError::Custom(
+                        "Default value for map type must be an object".to_string(),
+                    ));
+                }
+            }
+            AvroType::Fixed(_) => {
+                // Fixed default must be a string
+                if !default.is_string() {
+                    return Err(SchemaError::Custom(
+                        "Default value for fixed type must be a string".to_string(),
+                    ));
+                }
+            }
+            AvroType::Union(types) => {
+                // Default value must match the FIRST type in the union (per Avro spec)
+                if let Some(first_type) = types.first() {
+                    self.validate_default_value(default, first_type, named_types)?;
+                } else {
+                    return Err(SchemaError::Custom(
+                        "Union must have at least one type".to_string(),
+                    ));
+                }
+            }
+            AvroType::TypeRef(type_ref) => {
+                // Resolve the reference and validate against the actual type
+                if let Some(resolved_type) = named_types.get(&type_ref.name) {
+                    self.validate_default_value(default, resolved_type, named_types)?;
+                }
+                // If type not found, it will be caught by type reference validation
+            }
+        }
+
         Ok(())
     }
 

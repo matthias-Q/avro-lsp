@@ -1,0 +1,66 @@
+{
+  "type": "record",
+  "name": "DefaultValuesDemo",
+  "namespace": "com.example",
+  "doc": "Demonstrates various default value types",
+  "fields": [
+    {
+      "name": "id",
+      "type": "long",
+      "doc": "Unique identifier"
+    },
+    {
+      "name": "active",
+      "type": "boolean",
+      "default": true,
+      "doc": "Whether the record is active"
+    },
+    {
+      "name": "count",
+      "type": "int",
+      "default": 0
+    },
+    {
+      "name": "rating",
+      "type": "double",
+      "default": 0.0
+    },
+    {
+      "name": "name",
+      "type": "string",
+      "default": ""
+    },
+    {
+      "name": "optional_email",
+      "type": ["null", "string"],
+      "default": null,
+      "doc": "Default must match first type in union"
+    },
+    {
+      "name": "tags",
+      "type": {
+        "type": "array",
+        "items": "string"
+      },
+      "default": []
+    },
+    {
+      "name": "metadata",
+      "type": {
+        "type": "map",
+        "values": "string"
+      },
+      "default": {}
+    },
+    {
+      "name": "status",
+      "type": {
+        "type": "enum",
+        "name": "Status",
+        "symbols": ["PENDING", "ACTIVE", "INACTIVE"],
+        "default": "PENDING"
+      },
+      "default": "PENDING"
+    }
+  ]
+}

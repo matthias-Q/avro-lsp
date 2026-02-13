@@ -153,8 +153,16 @@ pub struct FixedSchema {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub namespace: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub doc: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub aliases: Option<Vec<String>>,
     pub size: usize,
+    #[serde(skip_serializing_if = "Option::is_none", rename = "logicalType")]
+    pub logical_type: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub precision: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub scale: Option<usize>,
 
     // Position tracking (not serialized)
     #[serde(skip)]

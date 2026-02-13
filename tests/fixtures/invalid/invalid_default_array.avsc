@@ -1,0 +1,14 @@
+{
+  "type": "record",
+  "name": "BadArrayDefault",
+  "fields": [
+    {
+      "name": "items",
+      "type": {
+        "type": "array",
+        "items": "string"
+      },
+      "default": "not an array"
+    }
+  ]
+}

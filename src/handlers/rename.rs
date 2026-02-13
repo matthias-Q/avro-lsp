@@ -110,6 +110,22 @@ pub fn rename(
                 edits = collect_type_rename_edits(schema, text, old_name, new_name);
             }
         }
+        AstNode::FixedDefinition(fixed) => {
+            if let Some(name_range) = &fixed.name_range
+                && position_in_range(position, name_range)
+            {
+                let old_name = &fixed.name;
+
+                if schema.named_types.contains_key(new_name) && new_name != old_name {
+                    return Err(ResponseError::new(
+                        async_lsp::ErrorCode::INVALID_PARAMS,
+                        format!("Type '{}' already exists", new_name),
+                    ));
+                }
+
+                edits = collect_type_rename_edits(schema, text, old_name, new_name);
+            }
+        }
     }
 
     if edits.is_empty() {
@@ -172,6 +188,16 @@ pub fn prepare_rename(schema: &AvroSchema, position: Position) -> Option<Prepare
                 });
             }
         }
+        AstNode::FixedDefinition(fixed) => {
+            if let Some(name_range) = &fixed.name_range
+                && position_in_range(position, name_range)
+            {
+                return Some(PrepareRenameResponse::RangeWithPlaceholder {
+                    range: *name_range,
+                    placeholder: fixed.name.clone(),
+                });
+            }
+        }
     }
 
     None
@@ -217,6 +243,17 @@ pub fn find_references(
                     } else {
                         None
                     }
+                } else {
+                    None
+                }
+            } else {
+                None
+            }
+        }
+        AstNode::FixedDefinition(fixed) => {
+            if let Some(name_range) = &fixed.name_range {
+                if position_in_range(position, name_range) {
+                    Some(&fixed.name)
                 } else {
                     None
                 }

@@ -7,7 +7,9 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
-use crate::schema::{AvroParser, AvroSchema, AvroType, EnumSchema, Field, RecordSchema};
+use crate::schema::{
+    AvroParser, AvroSchema, AvroType, EnumSchema, Field, FixedSchema, RecordSchema,
+};
 
 #[derive(Clone)]
 pub struct ServerState {
@@ -40,6 +42,8 @@ pub enum AstNode<'a> {
     FieldType(&'a Field),
     /// Cursor is somewhere in the enum definition
     EnumDefinition(&'a EnumSchema),
+    /// Cursor is somewhere in the fixed definition
+    FixedDefinition(&'a FixedSchema),
 }
 
 /// Helper to check if position is inside a range
@@ -84,21 +88,24 @@ fn find_node_in_type<'a>(
                     if let Some(field_range) = &field.range
                         && position_in_range(position, field_range)
                     {
-                        // Check if position is on field's type (MOST IMPORTANT for "make nullable")
+                        // Check if position is specifically on field's name
+                        if let Some(name_range) = &field.name_range
+                            && position_in_range(position, name_range)
+                        {
+                            // On field name - always return Field for field-level actions
+                            return Some(AstNode::Field(field));
+                        }
+
+                        // Check if position is on field's type value (for "make nullable")
                         if let Some(type_range) = &field.type_range
                             && position_in_range(position, type_range)
                         {
                             return Some(AstNode::FieldType(field));
                         }
 
-                        // Recursively check the field's type for nested structures
-                        if let Some(nested) =
-                            find_node_in_type(&field.field_type, position, position_in_range)
-                        {
-                            return Some(nested);
-                        }
-
-                        // If no more specific match, return the field itself
+                        // For any other position within the field (but not on nested type definitions),
+                        // return Field to provide field-level actions
+                        // This makes "Add documentation" available anywhere in the field
                         return Some(AstNode::Field(field));
                     }
                 }
@@ -116,8 +123,13 @@ fn find_node_in_type<'a>(
             }
             None
         }
-        AvroType::Fixed(_fixed) => {
-            // Fixed types don't have doc field, no code actions available
+        AvroType::Fixed(fixed) => {
+            // Check if position is in this fixed's range
+            if let Some(fixed_range) = &fixed.range {
+                if position_in_range(position, fixed_range) {
+                    return Some(AstNode::FixedDefinition(fixed));
+                }
+            }
             None
         }
         AvroType::Array(array) => {

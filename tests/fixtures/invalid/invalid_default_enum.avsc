@@ -1,0 +1,15 @@
+{
+  "type": "record",
+  "name": "BadEnumDefault",
+  "fields": [
+    {
+      "name": "color",
+      "type": {
+        "type": "enum",
+        "name": "Color",
+        "symbols": ["RED", "GREEN", "BLUE"]
+      },
+      "default": "YELLOW"
+    }
+  ]
+}

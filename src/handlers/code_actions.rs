@@ -1,7 +1,7 @@
 use async_lsp::lsp_types::{CodeAction, Position, Range, Url};
 
 use crate::schema::{AvroSchema, AvroType, Field};
-use crate::schema::{EnumSchema, RecordSchema};
+use crate::schema::{EnumSchema, FixedSchema, RecordSchema};
 use crate::state::{AstNode, find_node_at_position};
 
 /// Get code actions available at the given range
@@ -25,6 +25,13 @@ pub fn get_code_actions(schema: &AvroSchema, uri: &Url, range: Range) -> Option<
             }
         }
         AstNode::Field(field) => {
+            // Offer "Add documentation" if field doesn't have doc
+            if field.doc.is_none()
+                && let Some(action) = create_add_doc_action_field(uri, field)
+            {
+                actions.push(action);
+            }
+
             // Offer "Add field to record" (insert after this field)
             // We need to find the parent record
             if let Some(action) = find_parent_record_and_add_field(uri, schema, field) {
@@ -54,6 +61,14 @@ pub fn get_code_actions(schema: &AvroSchema, uri: &Url, range: Range) -> Option<
                 actions.push(action);
             }
         }
+        AstNode::FixedDefinition(fixed_schema) => {
+            // Offer "Add documentation" if fixed doesn't have doc
+            if fixed_schema.doc.is_none()
+                && let Some(action) = create_add_doc_action_fixed(uri, fixed_schema)
+            {
+                actions.push(action);
+            }
+        }
     }
 
     if actions.is_empty() {
@@ -72,14 +87,10 @@ fn format_avro_type_as_json(avro_type: &AvroType) -> String {
         AvroType::Primitive(prim) => {
             format!("\"{}\"", format!("{:?}", prim).to_lowercase())
         }
-        AvroType::Record(r) => format!("\"{}\"", r.name),
-        AvroType::Enum(e) => format!("\"{}\"", e.name),
-        AvroType::Fixed(f) => format!("\"{}\"", f.name),
         AvroType::TypeRef(type_ref) => format!("\"{}\"", type_ref.name),
-        AvroType::Array(_) | AvroType::Map(_) | AvroType::Union(_) => {
-            // For complex types, use serde_json serialization
-            serde_json::to_string(avro_type).unwrap_or_else(|_| "\"string\"".to_string())
-        }
+        // For all other types (including Record, Enum, Fixed, Array, Map, Union),
+        // use serde_json serialization to preserve the full structure
+        _ => serde_json::to_string(avro_type).unwrap_or_else(|_| "\"string\"".to_string()),
     }
 }
 
@@ -194,6 +205,95 @@ fn create_add_doc_action_enum(
 
     Some(CodeAction {
         title: format!("Add documentation for '{}'", enum_schema.name),
+        kind: Some(CodeActionKind::REFACTOR),
+        diagnostics: None,
+        edit: Some(WorkspaceEdit {
+            changes: Some(changes),
+            document_changes: None,
+            change_annotations: None,
+        }),
+        command: None,
+        is_preferred: Some(false),
+        disabled: None,
+        data: None,
+    })
+}
+
+/// Create "Add documentation" action for fixed using AST
+fn create_add_doc_action_fixed(
+    uri: &Url,
+    fixed_schema: &crate::schema::FixedSchema,
+) -> Option<async_lsp::lsp_types::CodeAction> {
+    use async_lsp::lsp_types::{CodeAction, CodeActionKind, TextEdit, WorkspaceEdit};
+    use std::collections::HashMap;
+
+    let name_range = fixed_schema.name_range.as_ref()?;
+
+    let insert_position = Position {
+        line: name_range.end.line,
+        character: name_range.end.character,
+    };
+    let insert_text = format!(",\n  \"doc\": \"Description for {}\"", fixed_schema.name);
+
+    let mut changes = HashMap::new();
+    changes.insert(
+        uri.clone(),
+        vec![TextEdit {
+            range: Range {
+                start: insert_position,
+                end: insert_position,
+            },
+            new_text: insert_text,
+        }],
+    );
+
+    Some(CodeAction {
+        title: format!("Add documentation for '{}'", fixed_schema.name),
+        kind: Some(CodeActionKind::REFACTOR),
+        diagnostics: None,
+        edit: Some(WorkspaceEdit {
+            changes: Some(changes),
+            document_changes: None,
+            change_annotations: None,
+        }),
+        command: None,
+        is_preferred: Some(false),
+        disabled: None,
+        data: None,
+    })
+}
+
+/// Create "Add documentation" action for field
+fn create_add_doc_action_field(
+    uri: &Url,
+    field: &Field,
+) -> Option<async_lsp::lsp_types::CodeAction> {
+    use async_lsp::lsp_types::{CodeAction, CodeActionKind, TextEdit, WorkspaceEdit};
+    use std::collections::HashMap;
+
+    let name_range = field.name_range.as_ref()?;
+
+    // Insert doc field after the field name
+    let insert_position = Position {
+        line: name_range.end.line,
+        character: name_range.end.character,
+    };
+    let insert_text = format!(",\n    \"doc\": \"Description for {}\"", field.name);
+
+    let mut changes = HashMap::new();
+    changes.insert(
+        uri.clone(),
+        vec![TextEdit {
+            range: Range {
+                start: insert_position,
+                end: insert_position,
+            },
+            new_text: insert_text,
+        }],
+    );
+
+    Some(CodeAction {
+        title: format!("Add documentation for field '{}'", field.name),
         kind: Some(CodeActionKind::REFACTOR),
         diagnostics: None,
         edit: Some(WorkspaceEdit {
@@ -545,5 +645,108 @@ mod tests {
         assert!(text_edit.new_text.contains("new_field"));
         assert!(text_edit.new_text.contains("\"name\""));
         assert!(text_edit.new_text.contains("\"type\""));
+    }
+
+    #[test]
+    fn test_add_doc_to_field() {
+        let schema_text = r#"{
+  "type": "record",
+  "name": "User",
+  "fields": [
+    {"name": "id", "type": "int"}
+  ]
+}"#;
+
+        let mut parser = AvroParser::new();
+        let schema = parser.parse(schema_text).expect("Should parse");
+        let uri = Url::parse("file:///test.avsc").unwrap();
+
+        // Position on the "id" field name
+        let position = Position {
+            line: 4,
+            character: 15, // On "id"
+        };
+
+        let actions = get_code_actions(
+            &schema,
+            &uri,
+            Range {
+                start: position,
+                end: position,
+            },
+        );
+
+        assert!(actions.is_some(), "Should have code actions for field");
+        let actions = actions.unwrap();
+
+        println!("Available actions: {:?}", actions.iter().map(|a| &a.title).collect::<Vec<_>>());
+
+        // Find the "Add documentation" action
+        let add_doc = actions
+            .iter()
+            .find(|a| a.title.contains("Add documentation") && a.title.contains("field"));
+
+        assert!(
+            add_doc.is_some(),
+            "Should have 'Add documentation for field' action. Available: {:?}",
+            actions.iter().map(|a| &a.title).collect::<Vec<_>>()
+        );
+        
+        let action = add_doc.unwrap();
+
+        // Check the edit
+        let edit = action.edit.as_ref().expect("Should have edit");
+        let changes = edit.changes.as_ref().expect("Should have changes");
+        let file_edits = changes.get(&uri).expect("Should have edits for file");
+
+        assert_eq!(file_edits.len(), 1, "Should have one edit");
+        let text_edit = &file_edits[0];
+
+        // Should insert doc field after field name
+        assert!(text_edit.new_text.contains("\"doc\""), "Should contain doc field");
+        assert!(text_edit.new_text.contains("Description for id"), "Should contain description");
+    }
+
+    #[test]
+    fn test_add_doc_to_field_multiple_positions() {
+        let schema_text = r#"{
+  "type": "record",
+  "name": "User",
+  "fields": [
+    {"name": "id", "type": "int"},
+    {"name": "name", "type": "string"}
+  ]
+}"#;
+
+        let mut parser = AvroParser::new();
+        let schema = parser.parse(schema_text).expect("Should parse");
+        let uri = Url::parse("file:///test.avsc").unwrap();
+
+        // Test at different positions within a simple field
+
+        // Position 1: On the field name
+        let position1 = Position {
+            line: 4,
+            character: 15, // On "id"
+        };
+
+        let actions1 = get_code_actions(&schema, &uri, Range { start: position1, end: position1 });
+        assert!(actions1.is_some());
+        assert!(actions1.unwrap().iter().any(|a| a.title.contains("Add documentation for field")));
+
+        // Position 2: On the type value  
+        let position2 = Position {
+            line: 4,
+            character: 30, // On "int"
+        };
+
+        let actions2 = get_code_actions(&schema, &uri, Range { start: position2, end: position2 });
+        assert!(actions2.is_some());
+        // On type value, we get FieldType actions
+        let actions2_vec = actions2.unwrap();
+        let action_titles: Vec<_> = actions2_vec.iter().map(|a| a.title.as_str()).collect();
+        println!("Actions at type value: {:?}", action_titles);
+        // At type position, we prioritize FieldType for "Make nullable", 
+        // so Field doc might not be there - that's OK
     }
 }

@@ -8,6 +8,8 @@ Language Server Protocol (LSP) support for Apache Avro schema files (`.avsc`).
 - **Hover information** - Rich type details on hover
 - **Auto-completion** - Context-aware suggestions for keys and types
 - **Go to definition** - Jump to type declarations
+- **Find references** - Locate all usages of a type
+- **Rename symbol** - Safely rename types and update references
 - **Document formatting** - Consistent JSON formatting
 - **Semantic highlighting** - Context-aware syntax coloring
 - **Document symbols** - Outline view of schema structure
@@ -103,6 +105,14 @@ Trigger with `"`, `:`, or `,` to get suggestions for:
 ### Go to Definition
 
 Ctrl+Click (or Cmd+Click) on type references to jump to their definitions.
+
+### Find References
+
+Right-click on a type name and select "Find All References" to see all places where the type is used.
+
+### Rename Symbol
+
+Right-click on a type name and select "Rename Symbol" (or press F2) to rename the type and all its references.
 
 ### Formatting
 
