@@ -198,6 +198,7 @@ mod tests {
             fields: vec![],
             range: None,
             name_range: None,
+            namespace_range: None,
         });
         // Should return just the name, not the full structure
         assert_eq!(format_type_hint(&record), "Address");
@@ -215,6 +216,7 @@ mod tests {
             default: None,
             range: None,
             name_range: None,
+            namespace_range: None,
         });
         assert_eq!(format_type_hint(&enum_type), "Status");
     }
@@ -233,6 +235,7 @@ mod tests {
             scale: None,
             range: None,
             name_range: None,
+            namespace_range: None,
         });
         assert_eq!(format_type_hint(&fixed), "MD5");
     }
@@ -313,6 +316,7 @@ mod tests {
             fields: vec![field1, field2],
             range: None,
             name_range: None,
+            namespace_range: None,
         };
 
         let schema = AvroSchema {

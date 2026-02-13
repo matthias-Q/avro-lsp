@@ -609,6 +609,7 @@ mod tests {
             default: None,
             range: None,
             name_range: None,
+            namespace_range: None,
         };
         assert!(validator.validate_enum(&enum_schema).is_err());
     }

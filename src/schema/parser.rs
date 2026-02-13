@@ -148,6 +148,13 @@ impl AvroParser {
             });
         }
 
+        // Get namespace range if namespace exists
+        let namespace_range = if namespace.is_some() {
+            obj.get("namespace").map(|v| v.range())
+        } else {
+            None
+        };
+
         let record = RecordSchema {
             type_name: "record".to_string(),
             name: name.clone(),
@@ -157,6 +164,7 @@ impl AvroParser {
             fields,
             range: Some(record_range),
             name_range,
+            namespace_range,
         };
 
         let avro_type = AvroType::Record(record);
@@ -197,6 +205,13 @@ impl AvroParser {
 
         let default = self.get_optional_string(obj, "default");
 
+        // Get namespace range if namespace exists
+        let namespace_range = if namespace.is_some() {
+            obj.get("namespace").map(|v| v.range())
+        } else {
+            None
+        };
+
         let enum_schema = EnumSchema {
             type_name: "enum".to_string(),
             name: name.clone(),
@@ -207,6 +222,7 @@ impl AvroParser {
             default,
             range: Some(enum_range),
             name_range,
+            namespace_range,
         };
 
         let avro_type = AvroType::Enum(enum_schema);
@@ -286,6 +302,13 @@ impl AvroParser {
             _ => None,
         });
 
+        // Get namespace range if namespace exists
+        let namespace_range = if namespace.is_some() {
+            obj.get("namespace").map(|v| v.range())
+        } else {
+            None
+        };
+
         let fixed = FixedSchema {
             type_name: "fixed".to_string(),
             name: name.clone(),
@@ -298,6 +321,7 @@ impl AvroParser {
             scale,
             range: Some(fixed_range),
             name_range,
+            namespace_range,
         };
 
         let avro_type = AvroType::Fixed(fixed);

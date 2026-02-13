@@ -178,11 +178,14 @@ fn find_error_position_in_ast(error: &SchemaError, schema: &AvroSchema) -> Range
                     AvroType::Record(record) => {
                         if record.namespace.as_ref() == Some(namespace) {
                             tracing::debug!(
-                                "Found record with invalid namespace, name_range: {:?}",
-                                record.name_range
+                                "Found record with invalid namespace, namespace_range: {:?}",
+                                record.namespace_range
                             );
-                            // Use name_range as best approximation (namespace field isn't tracked separately yet)
-                            return record.name_range.or(record.range);
+                            // Use namespace_range if available, otherwise fall back to name_range or record range
+                            return record
+                                .namespace_range
+                                .or(record.name_range)
+                                .or(record.range);
                         }
                         // Recurse into fields
                         for field in &record.fields {
@@ -195,20 +198,23 @@ fn find_error_position_in_ast(error: &SchemaError, schema: &AvroSchema) -> Range
                     AvroType::Enum(enum_schema) => {
                         if enum_schema.namespace.as_ref() == Some(namespace) {
                             tracing::debug!(
-                                "Found enum with invalid namespace, name_range: {:?}",
-                                enum_schema.name_range
+                                "Found enum with invalid namespace, namespace_range: {:?}",
+                                enum_schema.namespace_range
                             );
-                            return enum_schema.name_range.or(enum_schema.range);
+                            return enum_schema
+                                .namespace_range
+                                .or(enum_schema.name_range)
+                                .or(enum_schema.range);
                         }
                         None
                     }
                     AvroType::Fixed(fixed) => {
                         if fixed.namespace.as_ref() == Some(namespace) {
                             tracing::debug!(
-                                "Found fixed with invalid namespace, name_range: {:?}",
-                                fixed.name_range
+                                "Found fixed with invalid namespace, namespace_range: {:?}",
+                                fixed.namespace_range
                             );
-                            return fixed.name_range.or(fixed.range);
+                            return fixed.namespace_range.or(fixed.name_range).or(fixed.range);
                         }
                         None
                     }

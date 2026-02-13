@@ -102,6 +102,8 @@ pub struct RecordSchema {
     pub range: Option<Range>,
     #[serde(skip)]
     pub name_range: Option<Range>,
+    #[serde(skip)]
+    pub namespace_range: Option<Range>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -147,6 +149,8 @@ pub struct EnumSchema {
     pub range: Option<Range>,
     #[serde(skip)]
     pub name_range: Option<Range>,
+    #[serde(skip)]
+    pub namespace_range: Option<Range>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -191,4 +195,6 @@ pub struct FixedSchema {
     pub range: Option<Range>,
     #[serde(skip)]
     pub name_range: Option<Range>,
+    #[serde(skip)]
+    pub namespace_range: Option<Range>,
 }
