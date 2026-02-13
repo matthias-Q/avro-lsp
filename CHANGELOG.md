@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.1.7] - 2026-02-13
+
+### Miscellaneous Tasks
+
+- Fix vsix release
+- *(release)* Release version v0.1.7
+
 ## [0.1.6] - 2026-02-13
 
 ### Features
