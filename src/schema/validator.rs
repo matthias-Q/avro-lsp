@@ -249,6 +249,8 @@ mod tests {
             aliases: None,
             symbols: vec!["A".to_string(), "B".to_string(), "A".to_string()],
             default: None,
+            range: None,
+            name_range: None,
         };
         assert!(validator.validate_enum(&enum_schema).is_err());
     }

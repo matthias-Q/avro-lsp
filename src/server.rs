@@ -84,6 +84,7 @@ impl LanguageServer for AvroLanguageServer {
                         ),
                     ),
                     document_formatting_provider: Some(OneOf::Left(true)),
+                    code_action_provider: Some(CodeActionProviderCapability::Simple(true)),
                     ..Default::default()
                 },
                 server_info: Some(ServerInfo {
@@ -277,6 +278,33 @@ impl LanguageServer for AvroLanguageServer {
                 Ok(Some(edit)) => Ok(Some(vec![edit])),
                 Ok(None) => Ok(None),
                 Err(e) => Err(e),
+            }
+        })
+    }
+
+    fn code_action(
+        &mut self,
+        params: CodeActionParams,
+    ) -> BoxFuture<'static, Result<Option<CodeActionResponse>, Self::Error>> {
+        let uri = params.text_document.uri;
+        let range = params.range;
+        let diagnostics = params.context.diagnostics;
+
+        tracing::debug!("Code action request for {} at {:?}", uri, range);
+
+        let state = self.state.clone();
+
+        Box::pin(async move {
+            match state.get_code_actions(&uri, range, diagnostics).await {
+                Some(actions) => {
+                    // Convert Vec<CodeAction> to Vec<CodeActionOrCommand>
+                    let response: CodeActionResponse = actions
+                        .into_iter()
+                        .map(CodeActionOrCommand::CodeAction)
+                        .collect();
+                    Ok(Some(response))
+                }
+                None => Ok(None),
             }
         })
     }

@@ -1,4 +1,5 @@
 pub mod error;
+pub mod json_parser;
 pub mod parser;
 pub mod types;
 pub mod validator;

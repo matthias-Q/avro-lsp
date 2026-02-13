@@ -1,3 +1,4 @@
+use async_lsp::lsp_types::Range;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
@@ -64,6 +65,12 @@ pub struct RecordSchema {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub aliases: Option<Vec<String>>,
     pub fields: Vec<Field>,
+
+    // Position tracking (not serialized)
+    #[serde(skip)]
+    pub range: Option<Range>,
+    #[serde(skip)]
+    pub name_range: Option<Range>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -79,6 +86,14 @@ pub struct Field {
     pub order: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub aliases: Option<Vec<String>>,
+
+    // Position tracking (not serialized)
+    #[serde(skip)]
+    pub range: Option<Range>,
+    #[serde(skip)]
+    pub name_range: Option<Range>,
+    #[serde(skip)]
+    pub type_range: Option<Range>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -95,6 +110,12 @@ pub struct EnumSchema {
     pub symbols: Vec<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub default: Option<String>,
+
+    // Position tracking (not serialized)
+    #[serde(skip)]
+    pub range: Option<Range>,
+    #[serde(skip)]
+    pub name_range: Option<Range>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -125,4 +146,10 @@ pub struct FixedSchema {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub aliases: Option<Vec<String>>,
     pub size: usize,
+
+    // Position tracking (not serialized)
+    #[serde(skip)]
+    pub range: Option<Range>,
+    #[serde(skip)]
+    pub name_range: Option<Range>,
 }

@@ -1,7 +1,7 @@
-use serde_json::Value;
 use std::collections::HashMap;
 
 use super::error::{Result, SchemaError};
+use super::json_parser::{parse_json, JsonValue};
 use super::types::*;
 
 pub struct AvroParser {
@@ -15,10 +15,13 @@ impl AvroParser {
         }
     }
 
-    /// Parse JSON text into an Avro schema
+    /// Parse JSON text into an Avro schema with position information
     pub fn parse(&mut self, json_text: &str) -> Result<AvroSchema> {
-        let value: Value = serde_json::from_str(json_text)?;
-        let root = self.parse_type(&value)?;
+        // Parse JSON with position tracking
+        let json = parse_json(json_text)
+            .map_err(|e| SchemaError::Custom(format!("JSON parse error: {}", e)))?;
+
+        let root = self.parse_type(&json)?;
 
         Ok(AvroSchema {
             root,
@@ -26,10 +29,10 @@ impl AvroParser {
         })
     }
 
-    fn parse_type(&mut self, value: &Value) -> Result<AvroType> {
+    fn parse_type(&mut self, value: &JsonValue) -> Result<AvroType> {
         match value {
             // Primitive type as string: "int", "string", etc.
-            Value::String(s) => {
+            JsonValue::String(s, _range) => {
                 if let Some(primitive) = PrimitiveType::from_str(s) {
                     Ok(AvroType::Primitive(primitive))
                 } else {
@@ -39,24 +42,24 @@ impl AvroParser {
             }
 
             // Union type as array: ["null", "string"]
-            Value::Array(arr) => {
+            JsonValue::Array(arr, _range) => {
                 let types: Result<Vec<_>> = arr.iter().map(|v| self.parse_type(v)).collect();
                 Ok(AvroType::Union(types?))
             }
 
             // Complex type as object
-            Value::Object(obj) => {
+            JsonValue::Object(obj, _range) => {
                 let type_name = obj
                     .get("type")
-                    .and_then(|v| v.as_str())
+                    .and_then(|v| v.as_string())
                     .ok_or_else(|| SchemaError::MissingField("type".to_string()))?;
 
                 match type_name {
-                    "record" => self.parse_record(obj),
-                    "enum" => self.parse_enum(obj),
+                    "record" => self.parse_record(obj, value.range()),
+                    "enum" => self.parse_enum(obj, value.range()),
                     "array" => self.parse_array(obj),
                     "map" => self.parse_map(obj),
-                    "fixed" => self.parse_fixed(obj),
+                    "fixed" => self.parse_fixed(obj, value.range()),
                     prim if PrimitiveType::from_str(prim).is_some() => {
                         Ok(AvroType::Primitive(PrimitiveType::from_str(prim).unwrap()))
                     }
@@ -70,11 +73,21 @@ impl AvroParser {
         }
     }
 
-    fn parse_record(&mut self, obj: &serde_json::Map<String, Value>) -> Result<AvroType> {
+    fn parse_record(
+        &mut self,
+        obj: &HashMap<String, JsonValue>,
+        record_range: async_lsp::lsp_types::Range,
+    ) -> Result<AvroType> {
         let name = self.get_required_string(obj, "name")?;
         let namespace = self.get_optional_string(obj, "namespace");
         let doc = self.get_optional_string(obj, "doc");
         let aliases = self.get_optional_string_array(obj, "aliases");
+
+        // Get name range
+        let name_range = obj
+            .get("name")
+            .map(|v| v.range())
+            .or_else(|| Some(record_range));
 
         let fields_value = obj
             .get("fields")
@@ -102,13 +115,23 @@ impl AvroParser {
                 .ok_or_else(|| SchemaError::MissingField("type".to_string()))?;
             let field_type = self.parse_type(field_type_value)?;
 
+            // Get position ranges
+            let field_range = Some(field_value.range());
+            let name_range = field_obj.get("name").map(|v| v.range());
+            let type_range = Some(field_type_value.range());
+
             fields.push(Field {
                 name: field_name,
                 field_type: Box::new(field_type),
                 doc: self.get_optional_string(field_obj, "doc"),
-                default: field_obj.get("default").cloned(),
+                default: field_obj
+                    .get("default")
+                    .and_then(|v| self.json_value_to_serde(v)),
                 order: self.get_optional_string(field_obj, "order"),
                 aliases: self.get_optional_string_array(field_obj, "aliases"),
+                range: field_range,
+                name_range,
+                type_range,
             });
         }
 
@@ -119,6 +142,8 @@ impl AvroParser {
             doc,
             aliases,
             fields,
+            range: Some(record_range),
+            name_range,
         };
 
         let avro_type = AvroType::Record(record);
@@ -129,11 +154,21 @@ impl AvroParser {
         Ok(avro_type)
     }
 
-    fn parse_enum(&mut self, obj: &serde_json::Map<String, Value>) -> Result<AvroType> {
+    fn parse_enum(
+        &mut self,
+        obj: &HashMap<String, JsonValue>,
+        enum_range: async_lsp::lsp_types::Range,
+    ) -> Result<AvroType> {
         let name = self.get_required_string(obj, "name")?;
         let namespace = self.get_optional_string(obj, "namespace");
         let doc = self.get_optional_string(obj, "doc");
         let aliases = self.get_optional_string_array(obj, "aliases");
+
+        // Get name range
+        let name_range = obj
+            .get("name")
+            .map(|v| v.range())
+            .or_else(|| Some(enum_range));
 
         let symbols = obj
             .get("symbols")
@@ -141,7 +176,7 @@ impl AvroParser {
             .ok_or_else(|| SchemaError::MissingField("symbols".to_string()))?
             .iter()
             .map(|v| {
-                v.as_str()
+                v.as_string()
                     .map(String::from)
                     .ok_or_else(|| SchemaError::InvalidType {
                         expected: "string".to_string(),
@@ -160,6 +195,8 @@ impl AvroParser {
             aliases,
             symbols,
             default,
+            range: Some(enum_range),
+            name_range,
         };
 
         let avro_type = AvroType::Enum(enum_schema);
@@ -170,7 +207,7 @@ impl AvroParser {
         Ok(avro_type)
     }
 
-    fn parse_array(&mut self, obj: &serde_json::Map<String, Value>) -> Result<AvroType> {
+    fn parse_array(&mut self, obj: &HashMap<String, JsonValue>) -> Result<AvroType> {
         let items_value = obj
             .get("items")
             .ok_or_else(|| SchemaError::MissingField("items".to_string()))?;
@@ -179,11 +216,15 @@ impl AvroParser {
         Ok(AvroType::Array(ArraySchema {
             type_name: "array".to_string(),
             items: Box::new(items),
-            default: obj.get("default").and_then(|v| v.as_array().cloned()),
+            default: obj.get("default").and_then(|v| v.as_array()).map(|arr| {
+                arr.iter()
+                    .filter_map(|v| self.json_value_to_serde(v))
+                    .collect()
+            }),
         }))
     }
 
-    fn parse_map(&mut self, obj: &serde_json::Map<String, Value>) -> Result<AvroType> {
+    fn parse_map(&mut self, obj: &HashMap<String, JsonValue>) -> Result<AvroType> {
         let values_value = obj
             .get("values")
             .ok_or_else(|| SchemaError::MissingField("values".to_string()))?;
@@ -192,22 +233,36 @@ impl AvroParser {
         Ok(AvroType::Map(MapSchema {
             type_name: "map".to_string(),
             values: Box::new(values),
-            default: obj
-                .get("default")
-                .and_then(|v| v.as_object())
-                .map(|m| m.clone().into_iter().collect()),
+            default: obj.get("default").and_then(|v| v.as_object()).map(|m| {
+                m.iter()
+                    .filter_map(|(k, v)| self.json_value_to_serde(v).map(|val| (k.clone(), val)))
+                    .collect()
+            }),
         }))
     }
 
-    fn parse_fixed(&mut self, obj: &serde_json::Map<String, Value>) -> Result<AvroType> {
+    fn parse_fixed(
+        &mut self,
+        obj: &HashMap<String, JsonValue>,
+        fixed_range: async_lsp::lsp_types::Range,
+    ) -> Result<AvroType> {
         let name = self.get_required_string(obj, "name")?;
         let namespace = self.get_optional_string(obj, "namespace");
         let aliases = self.get_optional_string_array(obj, "aliases");
 
-        let size =
-            obj.get("size")
-                .and_then(|v| v.as_u64())
-                .ok_or_else(|| SchemaError::MissingField("size".to_string()))? as usize;
+        // Get name range
+        let name_range = obj
+            .get("name")
+            .map(|v| v.range())
+            .or_else(|| Some(fixed_range));
+
+        let size = obj
+            .get("size")
+            .and_then(|v| match v {
+                JsonValue::Number(n, _) => Some(*n as usize),
+                _ => None,
+            })
+            .ok_or_else(|| SchemaError::MissingField("size".to_string()))?;
 
         let fixed = FixedSchema {
             type_name: "fixed".to_string(),
@@ -215,6 +270,8 @@ impl AvroParser {
             namespace,
             aliases,
             size,
+            range: Some(fixed_range),
+            name_range,
         };
 
         let avro_type = AvroType::Fixed(fixed);
@@ -225,37 +282,53 @@ impl AvroParser {
         Ok(avro_type)
     }
 
-    fn get_required_string(
-        &self,
-        obj: &serde_json::Map<String, Value>,
-        key: &str,
-    ) -> Result<String> {
+    fn get_required_string(&self, obj: &HashMap<String, JsonValue>, key: &str) -> Result<String> {
         obj.get(key)
-            .and_then(|v| v.as_str())
+            .and_then(|v| v.as_string())
             .map(String::from)
             .ok_or_else(|| SchemaError::MissingField(key.to_string()))
     }
 
-    fn get_optional_string(
-        &self,
-        obj: &serde_json::Map<String, Value>,
-        key: &str,
-    ) -> Option<String> {
-        obj.get(key).and_then(|v| v.as_str()).map(String::from)
+    fn get_optional_string(&self, obj: &HashMap<String, JsonValue>, key: &str) -> Option<String> {
+        obj.get(key).and_then(|v| v.as_string()).map(String::from)
     }
 
     fn get_optional_string_array(
         &self,
-        obj: &serde_json::Map<String, Value>,
+        obj: &HashMap<String, JsonValue>,
         key: &str,
     ) -> Option<Vec<String>> {
         obj.get(key).and_then(|v| {
             v.as_array().map(|arr| {
                 arr.iter()
-                    .filter_map(|v| v.as_str().map(String::from))
+                    .filter_map(|v| v.as_string().map(String::from))
                     .collect()
             })
         })
+    }
+
+    /// Convert our JsonValue to serde_json::Value for default values
+    fn json_value_to_serde(&self, value: &JsonValue) -> Option<serde_json::Value> {
+        match value {
+            JsonValue::Null(_) => Some(serde_json::Value::Null),
+            JsonValue::Bool(b, _) => Some(serde_json::Value::Bool(*b)),
+            JsonValue::Number(n, _) => {
+                serde_json::Number::from_f64(*n).map(serde_json::Value::Number)
+            }
+            JsonValue::String(s, _) => Some(serde_json::Value::String(s.clone())),
+            JsonValue::Array(arr, _) => {
+                let vals: Option<Vec<_>> =
+                    arr.iter().map(|v| self.json_value_to_serde(v)).collect();
+                vals.map(serde_json::Value::Array)
+            }
+            JsonValue::Object(obj, _) => {
+                let map: Option<serde_json::Map<String, serde_json::Value>> = obj
+                    .iter()
+                    .map(|(k, v)| self.json_value_to_serde(v).map(|val| (k.clone(), val)))
+                    .collect();
+                map.map(serde_json::Value::Object)
+            }
+        }
     }
 }
 
@@ -293,6 +366,10 @@ mod tests {
         if let AvroType::Record(record) = schema.root {
             assert_eq!(record.name, "User");
             assert_eq!(record.fields.len(), 2);
+            // Check that positions are tracked
+            assert!(record.range.is_some());
+            assert!(record.fields[0].range.is_some());
+            assert!(record.fields[0].type_range.is_some());
         } else {
             panic!("Expected record type");
         }
@@ -323,16 +400,12 @@ mod tests {
         }"#;
         let schema = parser.parse(json).unwrap();
 
-        // Debug print to see what we got
-        eprintln!("Parsed schema: {:#?}", schema.root);
-
         if let AvroType::Record(record) = &schema.root {
             assert_eq!(record.name, "Response");
             assert_eq!(record.fields.len(), 1);
 
             // Check the field type - should be Union
             if let AvroType::Union(types) = &*record.fields[0].field_type {
-                eprintln!("Union types: {:#?}", types);
                 assert_eq!(types.len(), 2);
             } else {
                 panic!(

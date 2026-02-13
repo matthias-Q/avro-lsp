@@ -2,9 +2,9 @@
 
 This guide provides essential information for AI coding agents and human developers working on avro-lsp, a Language Server Protocol implementation for editing Apache Avro schema files (`.avsc`).
 
-**Project Goal**: Provide IDE-like features (diagnostics, validation, hover, semantic highlighting, completion, go to definition) for `.avsc` files in editors like Neovim.
+**Project Goal**: Provide IDE-like features (diagnostics, validation, hover, semantic highlighting, completion, go to definition, formatting, code actions) for `.avsc` files in editors like Neovim.
 
-**Current Status**: Phase 2 Complete ✅ - Moving to Phase 3 (Multi-file support)
+**Current Status**: Phase 3C Complete ✅ - Code actions implemented
 
 **Tech Stack**: Rust (edition 2024), async-lsp framework, serde/serde_json for parsing, tokio async runtime
 
@@ -30,6 +30,22 @@ This guide provides essential information for AI coding agents and human develop
 - **Go to definition** - Navigate to type declarations
   - Jump to definition by clicking on type references
   - Works for records, enums, and fixed types
+
+### Phase 3A - Document Formatting ✅
+- **Document formatting** - Format `.avsc` files with consistent style
+  - Uses 2-space indentation (standard JSON formatting)
+  - Automatically removes trailing commas (invalid JSON)
+  - Returns error for invalid JSON
+  - Idempotent formatting (format twice = same result)
+  - Integrated with editor format commands (e.g., `:lua vim.lsp.buf.format()` in Neovim)
+
+### Phase 3C - Code Actions ✅
+- **Code actions** - Context-aware refactoring and quick fixes
+  - **Add field to record** - Insert new field scaffold in fields array
+  - **Add documentation** - Add doc field to record/enum/fixed definitions
+  - **Make field nullable** - Wrap field type in union with null
+  - Actions appear contextually based on cursor position
+  - Integrated with editor code action commands (e.g., `:lua vim.lsp.buf.code_action()` in Neovim)
 
 ---
 

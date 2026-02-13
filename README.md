@@ -198,10 +198,16 @@ The LSP validates the following aspects of Avro schemas:
 - [x] Auto-completion with snippet support
 - [x] Go to definition
 
-### Phase 3 (Future) 🔮
+### Phase 3A ✅
+- [x] Document formatting with trailing comma removal
+
+### Phase 3B (Future) 🔮
+- [ ] Enhanced validation (default values, logical types, etc.)
+- [ ] Code actions (scaffolding, quick fixes)
+
+### Phase 4 (Future) 🔮
 - [ ] Find references - Find all usages of a type
 - [ ] Multi-file support
-- [ ] Code formatting
 - [ ] Refactoring support
 
 ## Contributing

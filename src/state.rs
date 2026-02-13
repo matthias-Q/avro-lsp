@@ -7,8 +7,8 @@ use std::sync::Arc;
 use tokio::sync::RwLock;
 
 use crate::schema::{
-    AvroParser, AvroSchema, AvroType, AvroValidator, EnumSchema, Field, FixedSchema, PrimitiveType,
-    RecordSchema, SchemaError,
+    AvroParser, AvroSchema, AvroType, AvroValidator, EnumSchema, Field, FixedSchema,
+    PrimitiveType, RecordSchema, SchemaError,
 };
 
 #[derive(Clone)]
@@ -40,6 +40,116 @@ enum CompletionContext {
     EnumAttribute,   // Suggesting enum attributes
     RecordAttribute, // Suggesting record attributes
     Unknown,         // Unknown context
+}
+
+/// Represents a specific node in the AST at a given position
+#[derive(Debug, Clone)]
+pub enum AstNode<'a> {
+    /// Cursor is somewhere in the record definition
+    RecordDefinition(&'a RecordSchema),
+    /// Cursor is on a field object
+    Field(&'a Field),
+    /// Cursor is on a field's type value (key for "make nullable" action)
+    FieldType(&'a Field),
+    /// Cursor is somewhere in the enum definition
+    EnumDefinition(&'a EnumSchema),
+}
+
+/// Find the most specific AST node at the given position
+pub fn find_node_at_position<'a>(schema: &'a AvroSchema, position: Position) -> Option<AstNode<'a>> {
+    // Helper to check if position is inside a range
+    fn position_in_range(pos: Position, range: &Range) -> bool {
+        if pos.line < range.start.line || pos.line > range.end.line {
+            return false;
+        }
+        if pos.line == range.start.line && pos.character < range.start.character {
+            return false;
+        }
+        if pos.line == range.end.line && pos.character > range.end.character {
+            return false;
+        }
+        true
+    }
+
+    // Walk the root type
+    find_node_in_type(&schema.root, position, &position_in_range)
+}
+
+/// Recursively find node in an AvroType
+fn find_node_in_type<'a>(
+    avro_type: &'a AvroType,
+    position: Position,
+    position_in_range: &impl Fn(Position, &Range) -> bool,
+) -> Option<AstNode<'a>> {
+    match avro_type {
+        AvroType::Record(record) => {
+            // Check if position is in this record's range
+            if let Some(record_range) = &record.range {
+                if !position_in_range(position, record_range) {
+                    return None;
+                }
+
+                // Check each field for more specific matches
+                for field in &record.fields {
+                    if let Some(field_range) = &field.range {
+                        if position_in_range(position, field_range) {
+                            // Check if position is on field's type (MOST IMPORTANT for "make nullable")
+                            if let Some(type_range) = &field.type_range {
+                                if position_in_range(position, type_range) {
+                                    return Some(AstNode::FieldType(field));
+                                }
+                            }
+
+                            // Recursively check the field's type for nested structures
+                            if let Some(nested) =
+                                find_node_in_type(&field.field_type, position, position_in_range)
+                            {
+                                return Some(nested);
+                            }
+
+                            // If no more specific match, return the field itself
+                            return Some(AstNode::Field(field));
+                        }
+                    }
+                }
+
+                // Position is in record but not in any specific sub-element
+                return Some(AstNode::RecordDefinition(record));
+            }
+            None
+        }
+        AvroType::Enum(enum_schema) => {
+            if let Some(enum_range) = &enum_schema.range {
+                if position_in_range(position, enum_range) {
+                    return Some(AstNode::EnumDefinition(enum_schema));
+                }
+            }
+            None
+        }
+        AvroType::Fixed(_fixed) => {
+            // Fixed types don't have doc field, no code actions available
+            None
+        }
+        AvroType::Array(array) => {
+            // Recursively check the array's items type
+            find_node_in_type(&array.items, position, position_in_range)
+        }
+        AvroType::Map(map) => {
+            // Recursively check the map's values type
+            find_node_in_type(&map.values, position, position_in_range)
+        }
+        AvroType::Union(types) => {
+            // Check each type in the union
+            for avro_type in types {
+                if let Some(node) = find_node_in_type(avro_type, position, position_in_range) {
+                    return Some(node);
+                }
+            }
+            None
+        }
+        // Primitives and TypeRefs don't have position info
+        AvroType::Primitive(_) | AvroType::TypeRef(_) => None,
+    }
 }
 
 impl ServerState {
@@ -753,6 +863,277 @@ impl ServerState {
         // Strategy: Use regex to find commas followed by optional whitespace and then } or ]
         let re = regex::Regex::new(r",(\s*[}\]])").unwrap();
         re.replace_all(text, "$1").to_string()
+    }
+
+    /// Get code actions available at the given range
+    pub async fn get_code_actions(
+        &self,
+        uri: &Url,
+        range: Range,
+        _diagnostics: Vec<Diagnostic>,
+    ) -> Option<Vec<async_lsp::lsp_types::CodeAction>> {
+        let state = self.inner.read().await;
+        let doc = state.documents.get(uri)?;
+        let schema = doc.schema.as_ref()?;
+
+        // Use AST traversal to find the node at cursor position
+        let node = find_node_at_position(schema, range.start)?;
+
+        let mut actions = Vec::new();
+
+        match node {
+            AstNode::RecordDefinition(record) => {
+                // Offer "Add documentation" if record doesn't have doc
+                if record.doc.is_none() {
+                    if let Some(action) = self.create_add_doc_action(uri, record) {
+                        actions.push(action);
+                    }
+                }
+                // Offer "Add field to record"
+                if let Some(action) = self.create_add_field_action(uri, record) {
+                    actions.push(action);
+                }
+            }
+            AstNode::Field(field) => {
+                // Offer "Add field to record" (insert after this field)
+                // We need to find the parent record
+                if let Some(action) = self.find_parent_record_and_add_field(uri, schema, field) {
+                    actions.push(action);
+                }
+            }
+            AstNode::FieldType(field) => {
+                // Check if type is not already a union
+                if !self.is_union(&field.field_type) {
+                    // Offer "Make field nullable"
+                    if let Some(action) = self.create_make_nullable_action(uri, field) {
+                        actions.push(action);
+                    }
+                }
+            }
+            AstNode::EnumDefinition(enum_schema) => {
+                // Offer "Add documentation" if enum doesn't have doc
+                if enum_schema.doc.is_none() {
+                    if let Some(action) = self.create_add_doc_action_enum(uri, enum_schema) {
+                        actions.push(action);
+                    }
+                }
+            }
+        }
+
+        if actions.is_empty() {
+            None
+        } else {
+            Some(actions)
+        }
+    }
+
+    // ========================================================================
+    // AST-based Code Action Creators (New Implementation)
+    // ========================================================================
+
+    /// Helper: Check if a type is already a union
+    fn is_union(&self, avro_type: &AvroType) -> bool {
+        matches!(avro_type, AvroType::Union(_))
+    }
+
+    /// Helper: Format an AvroType as JSON string
+    fn format_avro_type(&self, avro_type: &AvroType) -> String {
+        serde_json::to_string(avro_type).unwrap_or_else(|_| "\"string\"".to_string())
+    }
+
+    /// Create "Make field nullable" action using AST
+    fn create_make_nullable_action(
+        &self,
+        uri: &Url,
+        field: &Field,
+    ) -> Option<async_lsp::lsp_types::CodeAction> {
+        use async_lsp::lsp_types::{CodeAction, CodeActionKind, TextEdit, WorkspaceEdit};
+        use std::collections::HashMap;
+
+        let type_range = field.type_range.as_ref()?;
+        let current_type = self.format_avro_type(&field.field_type);
+        let new_type = format!("[\"null\", {}]", current_type);
+
+        let mut changes = HashMap::new();
+        changes.insert(
+            uri.clone(),
+            vec![TextEdit {
+                range: *type_range,
+                new_text: new_type,
+            }],
+        );
+
+        Some(CodeAction {
+            title: format!("Make field '{}' nullable", field.name),
+            kind: Some(CodeActionKind::REFACTOR),
+            diagnostics: None,
+            edit: Some(WorkspaceEdit {
+                changes: Some(changes),
+                document_changes: None,
+                change_annotations: None,
+            }),
+            command: None,
+            is_preferred: Some(false),
+            disabled: None,
+            data: None,
+        })
+    }
+
+    /// Create "Add documentation" action for record using AST
+    fn create_add_doc_action(
+        &self,
+        uri: &Url,
+        record: &RecordSchema,
+    ) -> Option<async_lsp::lsp_types::CodeAction> {
+        use async_lsp::lsp_types::{CodeAction, CodeActionKind, TextEdit, WorkspaceEdit};
+        use std::collections::HashMap;
+
+        let name_range = record.name_range.as_ref()?;
+        
+        // Insert doc field after the name line
+        let insert_position = Position {
+            line: name_range.end.line,
+            character: name_range.end.character,
+        };
+        let insert_text = format!(",\n  \"doc\": \"Description for {}\"", record.name);
+
+        let mut changes = HashMap::new();
+        changes.insert(
+            uri.clone(),
+            vec![TextEdit {
+                range: Range {
+                    start: insert_position,
+                    end: insert_position,
+                },
+                new_text: insert_text,
+            }],
+        );
+
+        Some(CodeAction {
+            title: format!("Add documentation for '{}'", record.name),
+            kind: Some(CodeActionKind::REFACTOR),
+            diagnostics: None,
+            edit: Some(WorkspaceEdit {
+                changes: Some(changes),
+                document_changes: None,
+                change_annotations: None,
+            }),
+            command: None,
+            is_preferred: Some(false),
+            disabled: None,
+            data: None,
+        })
+    }
+
+    /// Create "Add documentation" action for enum using AST
+    fn create_add_doc_action_enum(
+        &self,
+        uri: &Url,
+        enum_schema: &EnumSchema,
+    ) -> Option<async_lsp::lsp_types::CodeAction> {
+        use async_lsp::lsp_types::{CodeAction, CodeActionKind, TextEdit, WorkspaceEdit};
+        use std::collections::HashMap;
+
+        let name_range = enum_schema.name_range.as_ref()?;
+        
+        let insert_position = Position {
+            line: name_range.end.line,
+            character: name_range.end.character,
+        };
+        let insert_text = format!(",\n  \"doc\": \"Description for {}\"", enum_schema.name);
+
+        let mut changes = HashMap::new();
+        changes.insert(
+            uri.clone(),
+            vec![TextEdit {
+                range: Range {
+                    start: insert_position,
+                    end: insert_position,
+                },
+                new_text: insert_text,
+            }],
+        );
+
+        Some(CodeAction {
+            title: format!("Add documentation for '{}'", enum_schema.name),
+            kind: Some(CodeActionKind::REFACTOR),
+            diagnostics: None,
+            edit: Some(WorkspaceEdit {
+                changes: Some(changes),
+                document_changes: None,
+                change_annotations: None,
+            }),
+            command: None,
+            is_preferred: Some(false),
+            disabled: None,
+            data: None,
+        })
+    }
+
+    /// Create "Add field to record" action using AST
+    fn create_add_field_action(
+        &self,
+        uri: &Url,
+        record: &RecordSchema,
+    ) -> Option<async_lsp::lsp_types::CodeAction> {
+        use async_lsp::lsp_types::{CodeAction, CodeActionKind, TextEdit, WorkspaceEdit};
+        use std::collections::HashMap;
+
+        // Insert at the end of the fields array
+        // We need to find the last field's range and insert after it
+        let last_field = record.fields.last()?;
+        let last_field_range = last_field.range.as_ref()?;
+
+        let insert_position = Position {
+            line: last_field_range.end.line,
+            character: last_field_range.end.character,
+        };
+
+        let new_field = r#"{"name": "new_field", "type": "string"}"#;
+        let insert_text = format!(",\n    {}", new_field);
+
+        let mut changes = HashMap::new();
+        changes.insert(
+            uri.clone(),
+            vec![TextEdit {
+                range: Range {
+                    start: insert_position,
+                    end: insert_position,
+                },
+                new_text: insert_text,
+            }],
+        );
+
+        Some(CodeAction {
+            title: "Add field to record".to_string(),
+            kind: Some(CodeActionKind::REFACTOR),
+            diagnostics: None,
+            edit: Some(WorkspaceEdit {
+                changes: Some(changes),
+                document_changes: None,
+                change_annotations: None,
+            }),
+            command: None,
+            is_preferred: Some(false),
+            disabled: None,
+            data: None,
+        })
+    }
+
+    /// Helper to find parent record and create add field action
+    fn find_parent_record_and_add_field(
+        &self,
+        uri: &Url,
+        schema: &AvroSchema,
+        _field: &Field,
+    ) -> Option<async_lsp::lsp_types::CodeAction> {
+        // For now, we'll find the root record if it's a record
+        // In future, we could walk the tree to find the actual parent
+        if let AvroType::Record(record) = &schema.root {
+            self.create_add_field_action(uri, record)
+        } else {
+            None
+        }
     }
 
     /// Analyze the context at the cursor position to determine what kind of completion to provide
