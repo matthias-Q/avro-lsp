@@ -81,6 +81,40 @@ A Language Server Protocol (LSP) implementation for Apache Avro schema files (`.
 
 ## Installation
 
+### Pre-built Binaries
+
+Download the latest release for your platform from [GitLab Releases](https://gitlab.build-unite.unite.eu/matthias.queitsch/avro-lsp/-/releases):
+
+- **Linux (x86_64)**: `avro-lsp-linux-x64`
+- **Windows (x86_64)**: `avro-lsp-win32-x64.exe`
+- **macOS Intel (x86_64)**: `avro-lsp-darwin-x64`
+- **macOS Apple Silicon (arm64)**: `avro-lsp-darwin-arm64`
+
+**Linux / macOS:**
+
+```bash
+# Download binary for your platform
+# For example, macOS Apple Silicon:
+curl -LO https://gitlab.build-unite.unite.eu/.../avro-lsp-darwin-arm64
+
+# Make executable
+chmod +x avro-lsp-darwin-arm64
+
+# System-wide installation
+sudo mv avro-lsp-darwin-arm64 /usr/local/bin/avro-lsp
+
+# Or user-local installation (ensure ~/.local/bin is in PATH)
+mkdir -p ~/.local/bin
+mv avro-lsp-darwin-arm64 ~/.local/bin/avro-lsp
+```
+
+**Windows:**
+
+```powershell
+# Download binary and copy to a directory in your PATH
+copy avro-lsp-win32-x64.exe C:\Users\YourName\.local\bin\avro-lsp.exe
+```
+
 ### Building from Source
 
 **All Platforms:**
@@ -113,7 +147,7 @@ copy target\release\avro-lsp.exe C:\Users\YourName\.local\bin\
 
 ### VS Code
 
-**Linux and Windows users** can install the pre-built extension:
+**All platforms (Linux, Windows, macOS)** can install the pre-built extension:
 
 1. Download the latest `.vsix` file from [GitLab Releases](https://gitlab.build-unite.unite.eu/matthias.queitsch/avro-lsp/-/releases)
 2. Install via command line:
@@ -125,18 +159,13 @@ copy target\release\avro-lsp.exe C:\Users\YourName\.local\bin\
    - Click "..." menu → "Install from VSIX..."
    - Select downloaded `.vsix` file
 
-The extension bundles the LSP server binary - no additional installation needed!
+The extension bundles the LSP server binary for all platforms - no additional installation needed!
 
-**macOS users** must build from source and configure a custom path:
-
-1. Build and install the LSP server (see "Building from Source" above)
-2. Install the extension from the `.vsix` file
-3. Configure VS Code settings (Ctrl+, or Cmd+,):
-   ```json
-   {
-     "avro-lsp.server.path": "/usr/local/bin/avro-lsp"
-   }
-   ```
+**Supported Platforms:**
+- Linux (x86_64)
+- Windows (x86_64)
+- macOS Intel (x86_64)
+- macOS Apple Silicon (arm64)
 
 **Optional Configuration:**
 
@@ -149,19 +178,7 @@ The extension bundles the LSP server binary - no additional installation needed!
 
 ### Neovim
 
-First, build and install the LSP server:
-
-```bash
-# Build the release version
-cargo build --release
-
-# Install to system binary path
-sudo cp target/release/avro-lsp /usr/local/bin/
-
-# Or install to user local bin (ensure ~/.local/bin is in PATH)
-mkdir -p ~/.local/bin
-cp target/release/avro-lsp ~/.local/bin/
-```
+First, install the LSP server (see "Installation" section above for pre-built binaries or building from source).
 
 **Modern Neovim 0.11+ (Recommended)**
 
@@ -239,7 +256,7 @@ IntelliJ IDEA and other JetBrains IDEs can use avro-lsp through the [LSP4Intelli
 
 **Installation:**
 
-1. Build and install the LSP server (see "Building from Source" above)
+1. Install the LSP server (see "Installation" section above for pre-built binaries or building from source)
 
 2. Install the LSP4IntelliJ plugin:
    - Open Settings/Preferences (Ctrl+Alt+S / Cmd+,)
