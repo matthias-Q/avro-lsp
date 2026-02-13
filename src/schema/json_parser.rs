@@ -63,7 +63,7 @@ impl JsonValue {
 /// Convert Span position to LSP Position
 fn span_to_position(span: Span) -> Position {
     Position {
-        line: (span.location_line() - 1) as u32,
+        line: (span.location_line() - 1),
         character: (span.get_column() - 1) as u32,
     }
 }

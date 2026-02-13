@@ -90,7 +90,7 @@ impl AvroParser {
         let name_range = obj
             .get("name")
             .map(|v| v.range())
-            .or_else(|| Some(record_range));
+            .or(Some(record_range));
 
         let fields_value = obj
             .get("fields")
@@ -171,7 +171,7 @@ impl AvroParser {
         let name_range = obj
             .get("name")
             .map(|v| v.range())
-            .or_else(|| Some(enum_range));
+            .or(Some(enum_range));
 
         let symbols = obj
             .get("symbols")
@@ -257,7 +257,7 @@ impl AvroParser {
         let name_range = obj
             .get("name")
             .map(|v| v.range())
-            .or_else(|| Some(fixed_range));
+            .or(Some(fixed_range));
 
         let size = obj
             .get("size")

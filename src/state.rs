@@ -92,14 +92,13 @@ fn find_node_in_type<'a>(
 
                 // Check each field for more specific matches
                 for field in &record.fields {
-                    if let Some(field_range) = &field.range {
-                        if position_in_range(position, field_range) {
+                    if let Some(field_range) = &field.range
+                        && position_in_range(position, field_range) {
                             // Check if position is on field's type (MOST IMPORTANT for "make nullable")
-                            if let Some(type_range) = &field.type_range {
-                                if position_in_range(position, type_range) {
+                            if let Some(type_range) = &field.type_range
+                                && position_in_range(position, type_range) {
                                     return Some(AstNode::FieldType(field));
                                 }
-                            }
 
                             // Recursively check the field's type for nested structures
                             if let Some(nested) =
@@ -111,7 +110,6 @@ fn find_node_in_type<'a>(
                             // If no more specific match, return the field itself
                             return Some(AstNode::Field(field));
                         }
-                    }
                 }
 
                 // Position is in record but not in any specific sub-element
@@ -120,11 +118,10 @@ fn find_node_in_type<'a>(
             None
         }
         AvroType::Enum(enum_schema) => {
-            if let Some(enum_range) = &enum_schema.range {
-                if position_in_range(position, enum_range) {
+            if let Some(enum_range) = &enum_schema.range
+                && position_in_range(position, enum_range) {
                     return Some(AstNode::EnumDefinition(enum_schema));
                 }
-            }
             None
         }
         AvroType::Fixed(_fixed) => {
@@ -885,11 +882,10 @@ impl ServerState {
         match node {
             AstNode::RecordDefinition(record) => {
                 // Offer "Add documentation" if record doesn't have doc
-                if record.doc.is_none() {
-                    if let Some(action) = self.create_add_doc_action(uri, record) {
+                if record.doc.is_none()
+                    && let Some(action) = self.create_add_doc_action(uri, record) {
                         actions.push(action);
                     }
-                }
                 // Offer "Add field to record"
                 if let Some(action) = self.create_add_field_action(uri, record) {
                     actions.push(action);
@@ -913,11 +909,10 @@ impl ServerState {
             }
             AstNode::EnumDefinition(enum_schema) => {
                 // Offer "Add documentation" if enum doesn't have doc
-                if enum_schema.doc.is_none() {
-                    if let Some(action) = self.create_add_doc_action_enum(uri, enum_schema) {
+                if enum_schema.doc.is_none()
+                    && let Some(action) = self.create_add_doc_action_enum(uri, enum_schema) {
                         actions.push(action);
                     }
-                }
             }
         }
 
@@ -1190,35 +1185,32 @@ impl ServerState {
         match node {
             AstNode::RecordDefinition(record) => {
                 // Check if cursor is on the name specifically
-                if let Some(name_range) = &record.name_range {
-                    if Self::position_in_range(position, name_range) {
+                if let Some(name_range) = &record.name_range
+                    && Self::position_in_range(position, name_range) {
                         // Rename the record: update declaration and all references
                         let old_name = &record.name;
                         self.collect_type_rename_edits(schema, old_name, new_name, &mut edits);
                     }
-                }
             }
             AstNode::EnumDefinition(enum_schema) => {
                 // Check if cursor is on the name specifically
-                if let Some(name_range) = &enum_schema.name_range {
-                    if Self::position_in_range(position, name_range) {
+                if let Some(name_range) = &enum_schema.name_range
+                    && Self::position_in_range(position, name_range) {
                         // Rename the enum: update declaration and all references
                         let old_name = &enum_schema.name;
                         self.collect_type_rename_edits(schema, old_name, new_name, &mut edits);
                     }
-                }
             }
             AstNode::Field(field) => {
                 // Check if cursor is on the field name specifically
-                if let Some(name_range) = &field.name_range {
-                    if Self::position_in_range(position, name_range) {
+                if let Some(name_range) = &field.name_range
+                    && Self::position_in_range(position, name_range) {
                         // Rename the field: only update this field's name
                         edits.push(TextEdit {
                             range: *name_range,
                             new_text: format!("\"{}\"", new_name),
                         });
                     }
-                }
             }
             AstNode::FieldType(_) => {
                 // Can't rename a type reference from the usage site
@@ -1260,14 +1252,13 @@ impl ServerState {
             match avro_type {
                 AvroType::Record(record) => {
                     // Update the record's name declaration
-                    if record.name == old_name {
-                        if let Some(name_range) = &record.name_range {
+                    if record.name == old_name
+                        && let Some(name_range) = &record.name_range {
                             edits.push(TextEdit {
                                 range: *name_range,
                                 new_text: format!("\"{}\"", new_name),
                             });
                         }
-                    }
                     // Check all fields for type references
                     for field in &record.fields {
                         find_references_in_type(&field.field_type, old_name, new_name, edits);
@@ -1275,36 +1266,33 @@ impl ServerState {
                 }
                 AvroType::Enum(enum_schema) => {
                     // Update the enum's name declaration
-                    if enum_schema.name == old_name {
-                        if let Some(name_range) = &enum_schema.name_range {
+                    if enum_schema.name == old_name
+                        && let Some(name_range) = &enum_schema.name_range {
                             edits.push(TextEdit {
                                 range: *name_range,
                                 new_text: format!("\"{}\"", new_name),
                             });
                         }
-                    }
                 }
                 AvroType::Fixed(fixed) => {
                     // Update the fixed type's name declaration
-                    if fixed.name == old_name {
-                        if let Some(name_range) = &fixed.name_range {
+                    if fixed.name == old_name
+                        && let Some(name_range) = &fixed.name_range {
                             edits.push(TextEdit {
                                 range: *name_range,
                                 new_text: format!("\"{}\"", new_name),
                             });
                         }
-                    }
                 }
                 AvroType::TypeRef(type_ref) => {
                     // This is a reference to a named type - rename it if it matches
-                    if type_ref.name == old_name {
-                        if let Some(range) = &type_ref.range {
+                    if type_ref.name == old_name
+                        && let Some(range) = &type_ref.range {
                             edits.push(TextEdit {
                                 range: *range,
                                 new_text: format!("\"{}\"", new_name),
                             });
                         }
-                    }
                 }
                 AvroType::Array(array) => {
                     find_references_in_type(&array.items, old_name, new_name, edits);
