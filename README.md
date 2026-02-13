@@ -35,6 +35,14 @@ A Language Server Protocol (LSP) implementation for Apache Avro schema files (`.
   - Includes documentation for each suggestion
   - Smart cursor positioning inside quotes and brackets
 
+- **Inlay hints** - Type information displayed inline:
+  - Shows field types after field names
+  - Unions displayed as `null | string` (preserves schema order)
+  - Arrays displayed as `array<type>` (e.g., `array<string>`)
+  - Maps displayed as `map<type>` (e.g., `map<long>`)
+  - Nested records show just the type name (e.g., `Address`)
+  - Helps quickly identify field types without reading JSON structure
+
 - **Go to definition** - Navigate to type declarations:
   - Jump to type definitions with Ctrl+Click (Cmd+Click on macOS)
   - Works for records, enums, and fixed types

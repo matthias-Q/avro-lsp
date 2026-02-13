@@ -2,9 +2,9 @@
 
 This guide provides essential information for AI coding agents and human developers working on avro-lsp, a Language Server Protocol implementation for editing Apache Avro schema files (`.avsc`).
 
-**Project Goal**: Provide IDE-like features (diagnostics, validation, hover, semantic highlighting, completion, go to definition, formatting, code actions) for `.avsc` files in editors like Neovim.
+**Project Goal**: Provide IDE-like features (diagnostics, validation, hover, semantic highlighting, inlay hints, completion, go to definition, formatting, code actions) for `.avsc` files in editors like Neovim.
 
-**Current Status**: Phase 3C Complete - Code actions implemented, VS Code extension available
+**Current Status**: Phase 3C Complete - Code actions and inlay hints implemented, VS Code extension available
 
 **Tech Stack**: Rust (edition 2024), async-lsp framework, serde/serde_json for parsing, tokio async runtime
 
@@ -38,6 +38,7 @@ This guide provides essential information for AI coding agents and human develop
 - **Hover information** - Rich type details for all schema elements
 - **Document symbols** - Hierarchical outline view
 - **Semantic tokens** - Meaning-aware syntax highlighting
+- **Inlay hints** - Inline type information for fields
 
 ### Phase 2 - Navigation & Completion ✅
 - **Auto-completion** - Context-aware suggestions with snippet support
