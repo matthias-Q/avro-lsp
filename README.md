@@ -233,6 +233,42 @@ No diagnostics appearing:
 1. Check filetype: `:set filetype?`
 2. Verify LSP is attached: `:LspInfo`
 
+### IntelliJ IDEA (LSP4IntelliJ)
+
+IntelliJ IDEA and other JetBrains IDEs can use avro-lsp through the [LSP4IntelliJ plugin](https://github.com/redhat-developer/lsp4ij).
+
+**Installation:**
+
+1. Build and install the LSP server (see "Building from Source" above)
+
+2. Install the LSP4IntelliJ plugin:
+   - Open Settings/Preferences (Ctrl+Alt+S / Cmd+,)
+   - Go to **Plugins** → **Marketplace**
+   - Search for **"LSP4IntelliJ"** or **"Language Server Protocol Support"**
+   - Click **Install** and restart IntelliJ
+
+3. Configure avro-lsp:
+   - Open Settings/Preferences → **Languages & Frameworks** → **Language Servers**
+   - Click **"+"** to add a new server
+   - Configure as follows:
+     - **Name**: `Avro LSP`
+     - **Language/File name patterns**: `*.avsc`
+     - **Command**: `/usr/local/bin/avro-lsp` (or your installation path)
+     - **Configuration**: Leave empty (optional)
+   - Click **OK** to save
+
+4. Test the setup:
+   - Create or open a `.avsc` file
+   - You should see diagnostics, hover tooltips, and auto-completion working
+   - Check LSP status in: **Tools** → **Language Server** → **Show Language Server Status**
+
+**Troubleshooting:**
+
+- **LSP not starting**: Verify the path to `avro-lsp` is correct and the binary is executable
+- **No diagnostics**: Check LSP status window for connection errors
+- **Features not working**: Ensure the file extension is `.avsc` and matches the pattern in settings
+
+
 ### Other Editors
 
 The LSP server uses standard input/output and works with any LSP-compatible editor:
