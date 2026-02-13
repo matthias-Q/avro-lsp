@@ -10,6 +10,23 @@ This guide provides essential information for AI coding agents and human develop
 
 **Avro Specification**: https://avro.apache.org/docs/1.11.1/specification/
 
+---
+
+## ⚠️ IMPORTANT: Agent Restrictions
+
+**DO NOT perform these actions:**
+- ❌ **NEVER create git commits** - Do not run `git commit`, `git add`, or any git operations that modify the repository
+- ❌ **NEVER install the package** - Do not run `cargo install`, `sudo cp`, or any installation commands
+- ❌ **NEVER run sudo commands** - The user will handle installation and system-level operations manually
+
+**What you SHOULD do:**
+- ✅ Build and test: `cargo build`, `cargo test`, `cargo clippy`
+- ✅ Package VS Code extension: `npm run compile`, `npm run package` (in vscode-avro-lsp/)
+- ✅ Modify source code, add features, fix bugs
+- ✅ Create documentation files when requested
+
+---
+
 ## ✅ Completed Features
 
 ### Phase 1A - Core Validation ✅
