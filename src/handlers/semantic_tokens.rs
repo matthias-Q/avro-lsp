@@ -182,7 +182,7 @@ impl SemanticTokensBuilder {
     ) {
         // Find and tokenize the enum name
         let name_pattern = format!("\"name\": \"{}\"", enum_type.name);
-        if let Some(offset) = self.text.find(&name_pattern) {
+        let enum_name_start = if let Some(offset) = self.text.find(&name_pattern) {
             let value_offset = offset + "\"name\": \"".len();
             if tokenized_offsets.insert(value_offset) {
                 let pos = self.offset_to_position(value_offset);
@@ -194,24 +194,39 @@ impl SemanticTokensBuilder {
                     TOKEN_MODIFIER_DECLARATION,
                 );
             }
-        }
+            Some(offset)
+        } else {
+            None
+        };
 
         // Tokenize enum symbols (appear in the "symbols" array)
-        if let Some(symbols_start) = self.text.find("\"symbols\":") {
-            for symbol in &enum_type.symbols {
-                let symbol_pattern = format!("\"{}\"", symbol);
-                // Search only after the "symbols" key
-                if let Some(offset) = self.text[symbols_start..].find(&symbol_pattern) {
-                    let absolute_offset = symbols_start + offset + 1; // +1 for opening quote
-                    if tokenized_offsets.insert(absolute_offset) {
-                        let pos = self.offset_to_position(absolute_offset);
-                        self.add_token(
-                            pos.line,
-                            pos.character,
-                            symbol.len() as u32,
-                            TOKEN_TYPE_ENUM_MEMBER,
-                            0,
-                        );
+        // Search for "symbols": near this enum's name to avoid matching other enums
+        let search_start = enum_name_start.unwrap_or(0);
+        if let Some(relative_offset) = self.text[search_start..].find("\"symbols\":") {
+            let symbols_start = search_start + relative_offset;
+
+            // Find the end of this symbols array by looking for the closing ]
+            // This prevents matching symbols from other enums
+            let symbols_section = &self.text[symbols_start..];
+            if let Some(symbols_end_relative) = symbols_section.find(']') {
+                let symbols_end = symbols_start + symbols_end_relative;
+
+                for symbol in &enum_type.symbols {
+                    let symbol_pattern = format!("\"{}\"", symbol);
+                    // Search only within this specific symbols array
+                    let search_region = &self.text[symbols_start..symbols_end];
+                    if let Some(offset) = search_region.find(&symbol_pattern) {
+                        let absolute_offset = symbols_start + offset + 1; // +1 for opening quote
+                        if tokenized_offsets.insert(absolute_offset) {
+                            let pos = self.offset_to_position(absolute_offset);
+                            self.add_token(
+                                pos.line,
+                                pos.character,
+                                symbol.len() as u32,
+                                TOKEN_TYPE_ENUM_MEMBER,
+                                0,
+                            );
+                        }
                     }
                 }
             }
