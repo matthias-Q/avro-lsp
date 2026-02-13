@@ -90,6 +90,7 @@ impl LanguageServer for AvroLanguageServer {
                         work_done_progress_options: WorkDoneProgressOptions::default(),
                     })),
                     references_provider: Some(OneOf::Left(true)),
+                    inlay_hint_provider: Some(OneOf::Left(true)),
                     ..Default::default()
                 },
                 server_info: Some(ServerInfo {
@@ -377,6 +378,24 @@ impl LanguageServer for AvroLanguageServer {
             state
                 .find_references(&uri, position, include_declaration)
                 .await
+        })
+    }
+
+    fn inlay_hint(
+        &mut self,
+        params: InlayHintParams,
+    ) -> BoxFuture<'static, Result<Option<Vec<InlayHint>>, Self::Error>> {
+        let uri = params.text_document.uri;
+
+        tracing::debug!("Inlay hints request for {}", uri);
+
+        let state = self.state.clone();
+
+        Box::pin(async move {
+            match state.get_inlay_hints(&uri).await {
+                Some(hints) => Ok(Some(hints)),
+                None => Ok(None),
+            }
         })
     }
 }

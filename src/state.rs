@@ -376,6 +376,17 @@ impl ServerState {
             include_declaration,
         ))
     }
+
+    pub async fn get_inlay_hints(&self, uri: &Url) -> Option<Vec<async_lsp::lsp_types::InlayHint>> {
+        let state = self.inner.read().await;
+        let doc = state.documents.get(uri)?;
+
+        let schema = doc.schema.as_ref()?;
+
+        Some(crate::handlers::inlay_hints::generate_inlay_hints(
+            schema, &doc.text,
+        ))
+    }
 }
 
 impl Default for ServerState {
