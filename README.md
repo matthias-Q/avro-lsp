@@ -4,52 +4,68 @@ A Language Server Protocol (LSP) implementation for Apache Avro schema files (`.
 
 ## Features
 
-### Phase 1A (Complete)
-- **Real-time validation** of Avro schemas with diagnostics
-- **JSON syntax checking**
-- **Schema validation** according to Apache Avro specification:
-  - Name and namespace validation
-  - Required field checking
-  - Type reference validation
+### Diagnostics and Validation
+- **Real-time error detection** - Instant feedback as you type
+- **JSON syntax validation** - Catches malformed JSON immediately
+- **Avro schema validation** according to Apache Avro specification:
+  - Name and namespace validation (`[A-Za-z_][A-Za-z0-9_]*`)
+  - Required field checking (type, name, fields, etc.)
+  - Type reference validation (all referenced types must exist)
   - Enum symbol uniqueness
-  - Union constraint validation
+  - Union constraint validation (no duplicate types, no nested unions)
   - Primitive type validation
-- **Precise error positioning** - errors shown at the exact location in the file
+- **Precise error positioning** - Errors shown at exact locations with clear messages
 
-### Phase 1B (Complete)
-- [x] **Hover information** - Rich type information when hovering over:
-  - Type names (records, enums, fixed types)
-  - Field names
-  - Primitive types
-  - Type references
-- [x] **Document symbols** - Outline view of all types and fields in schema
-- [x] **Semantic tokens** - Meaning-aware syntax highlighting:
-  - Keywords (type, name, fields, etc.) highlighted distinctly
-  - Type names (records, enums) with declaration modifiers
-  - Field names and properties
-  - Primitive types with readonly modifiers
-  - Enum symbols
+### Code Intelligence
 
-### Phase 2 (Complete)
-- [x] **Auto-completion** - Context-aware suggestions with snippet support:
-  - Suggests JSON keys based on context (record, enum, field attributes)
-  - Suggests all Avro types (primitives and complex types)
-  - Suggests named type references from the current schema
+- **Hover information** - Rich details when hovering over schema elements:
+  - Type definitions with full structure
+  - Field information including types and documentation
+  - Primitive type descriptions
+  - Type reference details
+
+- **Auto-completion** - Smart suggestions as you type:
+  - Context-aware JSON key suggestions (type, name, fields, etc.)
+  - All Avro types (primitives: null, boolean, int, long, float, double, bytes, string)
+  - Complex types (record, enum, array, map, fixed)
+  - Named type references from current schema
   - Triggered by `"`, `:`, and `,` characters
-  - Includes documentation for each completion item
+  - Includes documentation for each suggestion
   - Smart cursor positioning inside quotes and brackets
-- [x] **Go to definition** - Jump to type declarations
-  - Navigate to type definitions by clicking on type references
-  - Works for all named types (records, enums, fixed)
-  - Returns to original position easily with editor's jump-back command
 
-### Phase 3A (Complete)
-- [x] **Document formatting** - Format `.avsc` files with consistent style:
-  - Uses 2-space indentation (standard JSON formatting)
-  - Automatically removes trailing commas (invalid JSON)
-  - Preserves JSON semantics and schema structure
-  - Idempotent formatting (format twice = same result)
-  - Returns error for invalid JSON rather than silent failure
+- **Go to definition** - Navigate to type declarations:
+  - Jump to type definitions with Ctrl+Click (Cmd+Click on macOS)
+  - Works for records, enums, and fixed types
+  - Quick navigation within large schemas
+
+- **Document symbols** - Hierarchical outline view:
+  - See all types and fields at a glance
+  - Navigate quickly between definitions
+  - Understand schema structure instantly
+
+### Code Quality
+
+- **Document formatting** - Format `.avsc` files with consistent style:
+  - Standard 2-space JSON indentation
+  - Automatically removes trailing commas (invalid in JSON)
+  - Preserves schema semantics
+  - Idempotent (formatting twice produces same result)
+
+- **Code actions** - Context-aware quick fixes and refactoring:
+  - Add field to record - Insert new field scaffold
+  - Add documentation - Add doc field to types
+  - Make field nullable - Wrap type in union with null
+  - Contextual suggestions based on cursor position
+
+### Editor Experience
+
+- **Syntax highlighting** - Semantic token-based highlighting:
+  - Keywords (type, name, fields) distinctly colored
+  - Type names with declaration modifiers
+  - Field names and properties
+  - Primitive types consistently highlighted
+  - Enum symbols
+  - Context-aware coloring that understands schema structure
 
 ## Installation
 
@@ -58,7 +74,7 @@ A Language Server Protocol (LSP) implementation for Apache Avro schema files (`.
 **All Platforms:**
 
 ```bash
-git clone <repository-url>
+git clone https://gitlab.build-unite.unite.eu/matthias.queitsch/avro-lsp.git
 cd avro-lsp
 cargo build --release
 ```
@@ -81,19 +97,13 @@ cp target/release/avro-lsp ~/.local/bin/
 copy target\release\avro-lsp.exe C:\Users\YourName\.local\bin\
 ```
 
-### From Crates.io (coming soon)
-
-```bash
-cargo install avro-lsp
-```
-
 ## Editor Integration
 
 ### VS Code
 
 **Linux and Windows users** can install the pre-built extension:
 
-1. Download the latest `.vsix` file from [GitLab Releases](https://gitlab.com/your-username/avro-lsp/-/releases)
+1. Download the latest `.vsix` file from [GitLab Releases](https://gitlab.build-unite.unite.eu/matthias.queitsch/avro-lsp/-/releases)
 2. Install via command line:
    ```bash
    code --install-extension avro-lsp-0.1.0.vsix
@@ -211,8 +221,6 @@ No diagnostics appearing:
 1. Check filetype: `:set filetype?`
 2. Verify LSP is attached: `:LspInfo`
 
-For more details, see [NEOVIM.md](NEOVIM.md).
-
 ### Other Editors
 
 The LSP server uses standard input/output and works with any LSP-compatible editor:
@@ -286,8 +294,8 @@ avro-lsp/
 │   └── fixtures/        # Test .avsc files
 │       ├── valid/       # Valid schemas
 │       └── invalid/     # Invalid schemas (for testing diagnostics)
+├── vscode-avro-lsp/     # VS Code extension
 ├── AGENTS.md            # Development guide for AI agents and humans
-├── NEOVIM.md            # Neovim-specific setup guide
 └── README.md            # This file
 ```
 
@@ -322,14 +330,14 @@ The LSP validates the following aspects of Avro schemas:
 ### Phase 3A (Complete)
 - [x] Document formatting with trailing comma removal
 
-### Phase 3B (Future)
-- [ ] Enhanced validation (default values, logical types, etc.)
-- [ ] Code actions (scaffolding, quick fixes)
+### Phase 3C (Complete)
+- [x] Code actions (scaffolding, quick fixes)
 
 ### Phase 4 (Future)
 - [ ] Find references - Find all usages of a type
 - [ ] Multi-file support
 - [ ] Refactoring support
+- [ ] Enhanced validation (default values, logical types, etc.)
 
 ## Contributing
 

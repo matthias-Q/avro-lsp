@@ -3,7 +3,7 @@
   "displayName": "Avro Language Server",
   "description": "Language Server Protocol support for Apache Avro schema files (.avsc)",
   "version": "0.1.0",
-  "publisher": "your-publisher",
+  "publisher": "matthias-queitsch",
   "license": "MIT",
   "engines": {
     "vscode": "^1.80.0"
@@ -22,10 +22,10 @@
   ],
   "repository": {
     "type": "git",
-    "url": "https://gitlab.com/your-username/avro-lsp"
+    "url": "https://gitlab.build-unite.unite.eu/matthias.queitsch/avro-lsp"
   },
   "bugs": {
-    "url": "https://gitlab.com/your-username/avro-lsp/-/issues"
+    "url": "https://gitlab.build-unite.unite.eu/matthias.queitsch/avro-lsp/-/issues"
   },
   "activationEvents": [
     "onLanguage:avsc"
