@@ -1,7 +1,7 @@
 use async_lsp::lsp_types::{CodeAction, Position, Range, Url};
 
 use crate::schema::{AvroSchema, AvroType, Field};
-use crate::schema::{EnumSchema,  RecordSchema};
+use crate::schema::{EnumSchema, RecordSchema};
 use crate::state::{AstNode, find_node_at_position};
 
 /// Get code actions available at the given range
@@ -679,7 +679,10 @@ mod tests {
         assert!(actions.is_some(), "Should have code actions for field");
         let actions = actions.unwrap();
 
-        println!("Available actions: {:?}", actions.iter().map(|a| &a.title).collect::<Vec<_>>());
+        println!(
+            "Available actions: {:?}",
+            actions.iter().map(|a| &a.title).collect::<Vec<_>>()
+        );
 
         // Find the "Add documentation" action
         let add_doc = actions
@@ -703,8 +706,14 @@ mod tests {
         let text_edit = &file_edits[0];
 
         // Should insert doc field after field name
-        assert!(text_edit.new_text.contains("\"doc\""), "Should contain doc field");
-        assert!(text_edit.new_text.contains("Description for id"), "Should contain description");
+        assert!(
+            text_edit.new_text.contains("\"doc\""),
+            "Should contain doc field"
+        );
+        assert!(
+            text_edit.new_text.contains("Description for id"),
+            "Should contain description"
+        );
     }
 
     #[test]
@@ -730,9 +739,21 @@ mod tests {
             character: 15, // On "id"
         };
 
-        let actions1 = get_code_actions(&schema, &uri, Range { start: position1, end: position1 });
+        let actions1 = get_code_actions(
+            &schema,
+            &uri,
+            Range {
+                start: position1,
+                end: position1,
+            },
+        );
         assert!(actions1.is_some());
-        assert!(actions1.unwrap().iter().any(|a| a.title.contains("Add documentation for field")));
+        assert!(
+            actions1
+                .unwrap()
+                .iter()
+                .any(|a| a.title.contains("Add documentation for field"))
+        );
 
         // Position 2: On the type value
         let position2 = Position {
@@ -740,7 +761,14 @@ mod tests {
             character: 30, // On "int"
         };
 
-        let actions2 = get_code_actions(&schema, &uri, Range { start: position2, end: position2 });
+        let actions2 = get_code_actions(
+            &schema,
+            &uri,
+            Range {
+                start: position2,
+                end: position2,
+            },
+        );
         assert!(actions2.is_some());
         // On type value, we get FieldType actions
         let actions2_vec = actions2.unwrap();

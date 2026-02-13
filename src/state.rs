@@ -125,10 +125,10 @@ fn find_node_in_type<'a>(
         }
         AvroType::Fixed(fixed) => {
             // Check if position is in this fixed's range
-            if let Some(fixed_range) = &fixed.range {
-                if position_in_range(position, fixed_range) {
-                    return Some(AstNode::FixedDefinition(fixed));
-                }
+            if let Some(fixed_range) = &fixed.range
+                && position_in_range(position, fixed_range)
+            {
+                return Some(AstNode::FixedDefinition(fixed));
             }
             None
         }

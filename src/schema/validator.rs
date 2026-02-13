@@ -149,13 +149,13 @@ impl AvroValidator {
                     ));
                 }
                 // Scale is optional but must be <= precision if present
-                if let (Some(precision), Some(scale)) = (fixed.precision, fixed.scale) {
-                    if scale > precision {
-                        return Err(SchemaError::Custom(format!(
-                            "Decimal scale ({}) cannot be greater than precision ({})",
-                            scale, precision
-                        )));
-                    }
+                if let (Some(precision), Some(scale)) = (fixed.precision, fixed.scale)
+                    && scale > precision
+                {
+                    return Err(SchemaError::Custom(format!(
+                        "Decimal scale ({}) cannot be greater than precision ({})",
+                        scale, precision
+                    )));
                 }
             }
             "duration" => {
