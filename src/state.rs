@@ -7,8 +7,8 @@ use std::sync::Arc;
 use tokio::sync::RwLock;
 
 use crate::schema::{
-    AvroParser, AvroSchema, AvroType, AvroValidator, EnumSchema, Field, FixedSchema,
-    PrimitiveType, RecordSchema, SchemaError,
+    AvroParser, AvroSchema, AvroType, AvroValidator, EnumSchema, Field, FixedSchema, PrimitiveType,
+    RecordSchema, SchemaError,
 };
 
 #[derive(Clone)]
@@ -34,12 +34,12 @@ struct Document {
 /// Context for determining what kind of completion to provide
 #[derive(Debug, Clone, PartialEq)]
 enum CompletionContext {
-    JsonKey,           // Suggesting a JSON key (e.g., after { or ,)
-    TypeValue,         // Suggesting a type value (e.g., after "type":)
-    FieldAttribute,    // Suggesting field attributes (inside fields array)
-    EnumAttribute,     // Suggesting enum attributes
-    RecordAttribute,   // Suggesting record attributes
-    Unknown,           // Unknown context
+    JsonKey,         // Suggesting a JSON key (e.g., after { or ,)
+    TypeValue,       // Suggesting a type value (e.g., after "type":)
+    FieldAttribute,  // Suggesting field attributes (inside fields array)
+    EnumAttribute,   // Suggesting enum attributes
+    RecordAttribute, // Suggesting record attributes
+    Unknown,         // Unknown context
 }
 
 impl ServerState {
@@ -91,10 +91,10 @@ impl ServerState {
     pub async fn get_hover(&self, uri: &Url, position: Position) -> Option<Hover> {
         let state = self.inner.read().await;
         let document = state.documents.get(uri)?;
-        
+
         // Get the word at the cursor position
         let word = self.get_word_at_position(&document.text, position)?;
-        
+
         // Try to find hover information for this word
         if let Some(schema) = &document.schema {
             self.generate_hover(schema, &document.text, &word, position)
@@ -140,7 +140,7 @@ impl ServerState {
         if let Err(e) = validator.validate(&schema) {
             // Try to find the position of the error in the text
             let position = self.find_error_position(&e, text);
-            
+
             diagnostics.push(Diagnostic {
                 range: Range {
                     start: position,
@@ -178,9 +178,10 @@ impl ServerState {
         };
 
         if let Some(term) = search_term
-            && let Some(offset) = text.find(&term) {
-                return self.offset_to_position(text, offset);
-            }
+            && let Some(offset) = text.find(&term)
+        {
+            return self.offset_to_position(text, offset);
+        }
 
         // Default to line 0 if we can't find it
         Position {
@@ -193,20 +194,25 @@ impl ServerState {
     fn extract_error_position(&self, error_msg: &str, _text: &str) -> Position {
         // serde_json errors often contain "line X, column Y"
         if let Some(line_pos) = error_msg.find("line ")
-            && let Some(col_pos) = error_msg.find("column ") {
-                let line_str = &error_msg[line_pos + 5..];
-                let line_end = line_str.find(|c: char| !c.is_numeric()).unwrap_or(line_str.len());
-                let line_num: u32 = line_str[..line_end].parse().unwrap_or(1);
+            && let Some(col_pos) = error_msg.find("column ")
+        {
+            let line_str = &error_msg[line_pos + 5..];
+            let line_end = line_str
+                .find(|c: char| !c.is_numeric())
+                .unwrap_or(line_str.len());
+            let line_num: u32 = line_str[..line_end].parse().unwrap_or(1);
 
-                let col_str = &error_msg[col_pos + 7..];
-                let col_end = col_str.find(|c: char| !c.is_numeric()).unwrap_or(col_str.len());
-                let col_num: u32 = col_str[..col_end].parse().unwrap_or(0);
+            let col_str = &error_msg[col_pos + 7..];
+            let col_end = col_str
+                .find(|c: char| !c.is_numeric())
+                .unwrap_or(col_str.len());
+            let col_num: u32 = col_str[..col_end].parse().unwrap_or(0);
 
-                return Position {
-                    line: line_num.saturating_sub(1), // LSP is 0-indexed
-                    character: col_num.saturating_sub(1),
-                };
-            }
+            return Position {
+                line: line_num.saturating_sub(1), // LSP is 0-indexed
+                character: col_num.saturating_sub(1),
+            };
+        }
 
         Position {
             line: 0,
@@ -238,24 +244,24 @@ impl ServerState {
     fn get_word_at_position(&self, text: &str, position: Position) -> Option<String> {
         let lines: Vec<&str> = text.lines().collect();
         let line = lines.get(position.line as usize)?;
-        
+
         let chars: Vec<char> = line.chars().collect();
         let pos = position.character as usize;
-        
+
         if pos >= chars.len() {
             return None;
         }
-        
+
         // Check if we're on a quote or alphanumeric character
         let char_at_pos = chars[pos];
         if !char_at_pos.is_alphanumeric() && char_at_pos != '_' && char_at_pos != '"' {
             return None;
         }
-        
+
         // Find the start of the word (or quoted string)
         let mut start = pos;
         let in_quotes = char_at_pos == '"' || (pos > 0 && chars[pos - 1] == '"');
-        
+
         if in_quotes {
             // Find the opening quote
             while start > 0 && chars[start] != '"' {
@@ -280,7 +286,7 @@ impl ServerState {
             }
             return Some(chars[start..end].iter().collect());
         }
-        
+
         None
     }
 
@@ -389,10 +395,14 @@ impl ServerState {
                 format!("**Array** of {}", self.format_type_name(&array.items))
             }
             AvroType::Map(map) => {
-                format!("**Map** with values of type {}", self.format_type_name(&map.values))
+                format!(
+                    "**Map** with values of type {}",
+                    self.format_type_name(&map.values)
+                )
             }
             AvroType::Union(types) => {
-                let type_names: Vec<String> = types.iter().map(|t| self.format_type_name(t)).collect();
+                let type_names: Vec<String> =
+                    types.iter().map(|t| self.format_type_name(t)).collect();
                 format!("**Union**: {}", type_names.join(" | "))
             }
             AvroType::Primitive(prim) => {
@@ -422,14 +432,22 @@ impl ServerState {
     }
 
     /// Find field information in the schema
-    fn find_field_info(&self, schema: &AvroSchema, field_name: &str, _text: &str) -> Option<String> {
+    fn find_field_info(
+        &self,
+        schema: &AvroSchema,
+        field_name: &str,
+        _text: &str,
+    ) -> Option<String> {
         // Search through all records for a field with this name
         for named_type in schema.named_types.values() {
             if let AvroType::Record(record) = named_type {
                 for field in &record.fields {
                     if field.name == field_name {
                         let mut info = format!("**Field**: `{}`\n\n", field.name);
-                        info.push_str(&format!("**Type**: {}\n\n", self.format_type_name(&field.field_type)));
+                        info.push_str(&format!(
+                            "**Type**: {}\n\n",
+                            self.format_type_name(&field.field_type)
+                        ));
                         if let Some(doc) = &field.doc {
                             info.push_str(&format!("**Description**: {}\n\n", doc));
                         }
@@ -587,22 +605,31 @@ impl ServerState {
         let mut builder = SemanticTokensBuilder::new(text.clone());
         builder.tokenize_schema(schema);
         let tokens = builder.build();
-        
+
         tracing::debug!("Generated {} semantic tokens for {}", tokens.len(), uri);
-        
+
         Some(tokens)
     }
 
     /// Get completions for a position in the document
-    pub async fn get_completions(&self, uri: &Url, position: Position) -> Option<Vec<CompletionItem>> {
+    pub async fn get_completions(
+        &self,
+        uri: &Url,
+        position: Position,
+    ) -> Option<Vec<CompletionItem>> {
         let state = self.inner.read().await;
         let doc = state.documents.get(uri)?;
         let text = &doc.text;
         let schema = doc.schema.as_ref();
 
         let context = self.analyze_completion_context(text, position);
-        
-        tracing::debug!("Completion context at {}:{} - {:?}", position.line, position.character, context);
+
+        tracing::debug!(
+            "Completion context at {}:{} - {:?}",
+            position.line,
+            position.character,
+            context
+        );
 
         let mut items = Vec::new();
 
@@ -652,7 +679,7 @@ impl ServerState {
         if schema.named_types.contains_key(&word) {
             // Find where this type is defined (its name declaration)
             let range = self.find_name_range(text, &word)?;
-            
+
             return Some(Location {
                 uri: uri.clone(),
                 range,
@@ -661,6 +688,71 @@ impl ServerState {
 
         // Not a type reference we can navigate to
         None
+    }
+
+    /// Format the document with proper JSON formatting
+    /// Removes trailing commas and formats with 2-space indentation
+    pub async fn format_document(
+        &self,
+        uri: &Url,
+    ) -> Result<Option<async_lsp::lsp_types::TextEdit>, async_lsp::ResponseError> {
+        let state = self.inner.read().await;
+        let document = state.documents.get(uri).ok_or_else(|| {
+            async_lsp::ResponseError::new(
+                async_lsp::ErrorCode::INVALID_REQUEST,
+                "Document not found",
+            )
+        })?;
+
+        // First, remove trailing commas before parsing
+        let cleaned_text = self.remove_trailing_commas(&document.text);
+
+        // Parse JSON to validate and normalize
+        let json: serde_json::Value = serde_json::from_str(&cleaned_text).map_err(|e| {
+            async_lsp::ResponseError::new(
+                async_lsp::ErrorCode::PARSE_ERROR,
+                format!("Invalid JSON, cannot format: {}", e),
+            )
+        })?;
+
+        // Format with serde_json (uses 2-space indentation by default)
+        let formatted = serde_json::to_string_pretty(&json).map_err(|e| {
+            async_lsp::ResponseError::new(
+                async_lsp::ErrorCode::INTERNAL_ERROR,
+                format!("Formatting failed: {}", e),
+            )
+        })?;
+
+        // Add final newline
+        let formatted = format!("{}\n", formatted);
+
+        // Calculate the end position of the document
+        let line_count = document.text.lines().count() as u32;
+        let last_line = document.text.lines().last().unwrap_or("");
+        let last_line_length = last_line.len() as u32;
+
+        // Create TextEdit for full document replacement
+        Ok(Some(async_lsp::lsp_types::TextEdit {
+            range: async_lsp::lsp_types::Range {
+                start: Position {
+                    line: 0,
+                    character: 0,
+                },
+                end: Position {
+                    line: line_count.saturating_sub(1),
+                    character: last_line_length,
+                },
+            },
+            new_text: formatted,
+        }))
+    }
+
+    /// Remove trailing commas from JSON text
+    /// This handles cases like {"foo": "bar",} which are invalid JSON
+    fn remove_trailing_commas(&self, text: &str) -> String {
+        // Strategy: Use regex to find commas followed by optional whitespace and then } or ]
+        let re = regex::Regex::new(r",(\s*[}\]])").unwrap();
+        re.replace_all(text, "$1").to_string()
     }
 
     /// Analyze the context at the cursor position to determine what kind of completion to provide
@@ -672,7 +764,7 @@ impl ServerState {
 
         let line = lines[position.line as usize];
         let char_pos = position.character as usize;
-        
+
         // Get text before cursor on this line
         let before_cursor = if char_pos <= line.len() {
             &line[..char_pos]
@@ -694,7 +786,9 @@ impl ServerState {
         let context_lines = &lines[context_start..=position.line as usize];
         let context_text = context_lines.join("\n");
 
-        if context_text.contains("\"fields\"") && !context_text[context_text.rfind("\"fields\"").unwrap()..].contains(']') {
+        if context_text.contains("\"fields\"")
+            && !context_text[context_text.rfind("\"fields\"").unwrap()..].contains(']')
+        {
             // We're inside a fields array
             if before_cursor.trim_end().ends_with('{') || before_cursor.trim_end().ends_with(',') {
                 return CompletionContext::FieldAttribute;
@@ -703,15 +797,17 @@ impl ServerState {
 
         // Check if we're in an enum definition
         if context_text.contains("\"type\": \"enum\"")
-            && (before_cursor.trim_end().ends_with('{') || before_cursor.trim_end().ends_with(',')) {
-                return CompletionContext::EnumAttribute;
-            }
+            && (before_cursor.trim_end().ends_with('{') || before_cursor.trim_end().ends_with(','))
+        {
+            return CompletionContext::EnumAttribute;
+        }
 
         // Check if we're in a record definition
         if context_text.contains("\"type\": \"record\"")
-            && (before_cursor.trim_end().ends_with('{') || before_cursor.trim_end().ends_with(',')) {
-                return CompletionContext::RecordAttribute;
-            }
+            && (before_cursor.trim_end().ends_with('{') || before_cursor.trim_end().ends_with(','))
+        {
+            return CompletionContext::RecordAttribute;
+        }
 
         // Default: suggest JSON keys
         if before_cursor.trim_end().ends_with('{') || before_cursor.trim_end().ends_with(',') {
@@ -1093,24 +1189,43 @@ impl SemanticTokensBuilder {
     /// Main tokenization logic
     fn tokenize_schema(&mut self, schema: &AvroSchema) {
         use std::collections::HashSet;
-        
+
         // Track which byte offsets we've already tokenized to avoid duplicates
         let mut tokenized_offsets: HashSet<usize> = HashSet::new();
 
         // PASS 1: Tokenize all JSON structural keywords (keys only, not values)
         // These are the keys like "type":, "name":, "fields":, etc.
-        for key in &["type", "name", "namespace", "doc", "fields", "symbols", "items", "values", "size", "default", "aliases", "order"] {
+        for key in &[
+            "type",
+            "name",
+            "namespace",
+            "doc",
+            "fields",
+            "symbols",
+            "items",
+            "values",
+            "size",
+            "default",
+            "aliases",
+            "order",
+        ] {
             let pattern = format!("\"{}\":", key);
             let mut search_start = 0;
 
             while let Some(offset) = self.text[search_start..].find(&pattern) {
                 let absolute_offset = search_start + offset + 1; // +1 for opening quote
-                
+
                 if tokenized_offsets.insert(absolute_offset) {
                     let pos = self.offset_to_position(absolute_offset);
-                    self.add_token(pos.line, pos.character, key.len() as u32, TOKEN_TYPE_KEYWORD, 0);
+                    self.add_token(
+                        pos.line,
+                        pos.character,
+                        key.len() as u32,
+                        TOKEN_TYPE_KEYWORD,
+                        0,
+                    );
                 }
-                
+
                 search_start += offset + pattern.len();
             }
         }
@@ -1123,12 +1238,18 @@ impl SemanticTokensBuilder {
             while let Some(offset) = self.text[search_start..].find(&pattern) {
                 let absolute_offset = search_start + offset;
                 let value_offset = absolute_offset + "\"type\": \"".len();
-                
+
                 if tokenized_offsets.insert(value_offset) {
                     let pos = self.offset_to_position(value_offset);
-                    self.add_token(pos.line, pos.character, keyword.len() as u32, TOKEN_TYPE_KEYWORD, 0);
+                    self.add_token(
+                        pos.line,
+                        pos.character,
+                        keyword.len() as u32,
+                        TOKEN_TYPE_KEYWORD,
+                        0,
+                    );
                 }
-                
+
                 search_start += offset + pattern.len();
             }
         }
@@ -1164,14 +1285,24 @@ impl SemanticTokensBuilder {
     }
 
     /// Tokenize a record type
-    fn tokenize_record_type(&mut self, record: &RecordSchema, tokenized_offsets: &mut std::collections::HashSet<usize>) {
+    fn tokenize_record_type(
+        &mut self,
+        record: &RecordSchema,
+        tokenized_offsets: &mut std::collections::HashSet<usize>,
+    ) {
         // Find and tokenize the record name (appears after "name": at the top level)
         let name_pattern = format!("\"name\": \"{}\"", record.name);
         if let Some(offset) = self.text.find(&name_pattern) {
             let value_offset = offset + "\"name\": \"".len();
             if tokenized_offsets.insert(value_offset) {
                 let pos = self.offset_to_position(value_offset);
-                self.add_token(pos.line, pos.character, record.name.len() as u32, TOKEN_TYPE_STRUCT, TOKEN_MODIFIER_DECLARATION);
+                self.add_token(
+                    pos.line,
+                    pos.character,
+                    record.name.len() as u32,
+                    TOKEN_TYPE_STRUCT,
+                    TOKEN_MODIFIER_DECLARATION,
+                );
             }
         }
 
@@ -1182,14 +1313,24 @@ impl SemanticTokensBuilder {
     }
 
     /// Tokenize an enum type
-    fn tokenize_enum_type(&mut self, enum_type: &EnumSchema, tokenized_offsets: &mut std::collections::HashSet<usize>) {
+    fn tokenize_enum_type(
+        &mut self,
+        enum_type: &EnumSchema,
+        tokenized_offsets: &mut std::collections::HashSet<usize>,
+    ) {
         // Find and tokenize the enum name
         let name_pattern = format!("\"name\": \"{}\"", enum_type.name);
         if let Some(offset) = self.text.find(&name_pattern) {
             let value_offset = offset + "\"name\": \"".len();
             if tokenized_offsets.insert(value_offset) {
                 let pos = self.offset_to_position(value_offset);
-                self.add_token(pos.line, pos.character, enum_type.name.len() as u32, TOKEN_TYPE_ENUM, TOKEN_MODIFIER_DECLARATION);
+                self.add_token(
+                    pos.line,
+                    pos.character,
+                    enum_type.name.len() as u32,
+                    TOKEN_TYPE_ENUM,
+                    TOKEN_MODIFIER_DECLARATION,
+                );
             }
         }
 
@@ -1202,7 +1343,13 @@ impl SemanticTokensBuilder {
                     let absolute_offset = symbols_start + offset + 1; // +1 for opening quote
                     if tokenized_offsets.insert(absolute_offset) {
                         let pos = self.offset_to_position(absolute_offset);
-                        self.add_token(pos.line, pos.character, symbol.len() as u32, TOKEN_TYPE_ENUM_MEMBER, 0);
+                        self.add_token(
+                            pos.line,
+                            pos.character,
+                            symbol.len() as u32,
+                            TOKEN_TYPE_ENUM_MEMBER,
+                            0,
+                        );
                     }
                 }
             }
@@ -1210,39 +1357,59 @@ impl SemanticTokensBuilder {
     }
 
     /// Tokenize a fixed type
-    fn tokenize_fixed_type(&mut self, fixed: &FixedSchema, tokenized_offsets: &mut std::collections::HashSet<usize>) {
+    fn tokenize_fixed_type(
+        &mut self,
+        fixed: &FixedSchema,
+        tokenized_offsets: &mut std::collections::HashSet<usize>,
+    ) {
         // Find and tokenize the fixed name
         let name_pattern = format!("\"name\": \"{}\"", fixed.name);
         if let Some(offset) = self.text.find(&name_pattern) {
             let value_offset = offset + "\"name\": \"".len();
             if tokenized_offsets.insert(value_offset) {
                 let pos = self.offset_to_position(value_offset);
-                self.add_token(pos.line, pos.character, fixed.name.len() as u32, TOKEN_TYPE_TYPE, TOKEN_MODIFIER_DECLARATION);
+                self.add_token(
+                    pos.line,
+                    pos.character,
+                    fixed.name.len() as u32,
+                    TOKEN_TYPE_TYPE,
+                    TOKEN_MODIFIER_DECLARATION,
+                );
             }
         }
     }
 
     /// Tokenize a field
-    fn tokenize_field(&mut self, field: &Field, tokenized_offsets: &mut std::collections::HashSet<usize>) {
+    fn tokenize_field(
+        &mut self,
+        field: &Field,
+        tokenized_offsets: &mut std::collections::HashSet<usize>,
+    ) {
         // Find field name - need to be careful since "name" can appear multiple times
         // Look for {"name": "field_name" pattern within the fields array
         let field_pattern = format!("\"name\": \"{}\"", field.name);
         let mut search_start = 0;
-        
+
         // First find the "fields" array
         if let Some(fields_offset) = self.text.find("\"fields\":") {
             search_start = fields_offset;
         }
-        
+
         // Now search for this specific field name pattern after the fields array
         if let Some(offset) = self.text[search_start..].find(&field_pattern) {
             let absolute_offset = search_start + offset;
             let value_offset = absolute_offset + "\"name\": \"".len();
-            
+
             // Only tokenize if we haven't already (avoids duplicate in case of record name = field name)
             if tokenized_offsets.insert(value_offset) {
                 let pos = self.offset_to_position(value_offset);
-                self.add_token(pos.line, pos.character, field.name.len() as u32, TOKEN_TYPE_PROPERTY, TOKEN_MODIFIER_DECLARATION);
+                self.add_token(
+                    pos.line,
+                    pos.character,
+                    field.name.len() as u32,
+                    TOKEN_TYPE_PROPERTY,
+                    TOKEN_MODIFIER_DECLARATION,
+                );
             }
         }
 
@@ -1251,7 +1418,11 @@ impl SemanticTokensBuilder {
     }
 
     /// Tokenize a type (primitive, reference, complex)
-    fn tokenize_type(&mut self, avro_type: &AvroType, tokenized_offsets: &mut std::collections::HashSet<usize>) {
+    fn tokenize_type(
+        &mut self,
+        avro_type: &AvroType,
+        tokenized_offsets: &mut std::collections::HashSet<usize>,
+    ) {
         match avro_type {
             AvroType::Primitive(prim) => {
                 let type_str = match prim {
@@ -1271,25 +1442,32 @@ impl SemanticTokensBuilder {
 
                 while let Some(offset) = self.text[search_start..].find(&pattern) {
                     let absolute_offset = search_start + offset + 1; // +1 for opening quote
-                    
+
                     // Check if already tokenized
                     if !tokenized_offsets.contains(&absolute_offset) {
                         // Check context - should be after "type": or in an array
                         let context_start = absolute_offset.saturating_sub(20);
                         let context = &self.text[context_start..absolute_offset];
-                        
+
                         if (context.contains("\"type\":") || context.contains("["))
-                            && tokenized_offsets.insert(absolute_offset) {
-                                let pos = self.offset_to_position(absolute_offset);
-                                let token_type = match type_str {
-                                    "string" => TOKEN_TYPE_STRING,
-                                    "int" | "long" | "float" | "double" => TOKEN_TYPE_NUMBER,
-                                    _ => TOKEN_TYPE_KEYWORD,
-                                };
-                                self.add_token(pos.line, pos.character, type_str.len() as u32, token_type, TOKEN_MODIFIER_READONLY);
-                            }
+                            && tokenized_offsets.insert(absolute_offset)
+                        {
+                            let pos = self.offset_to_position(absolute_offset);
+                            let token_type = match type_str {
+                                "string" => TOKEN_TYPE_STRING,
+                                "int" | "long" | "float" | "double" => TOKEN_TYPE_NUMBER,
+                                _ => TOKEN_TYPE_KEYWORD,
+                            };
+                            self.add_token(
+                                pos.line,
+                                pos.character,
+                                type_str.len() as u32,
+                                token_type,
+                                TOKEN_MODIFIER_READONLY,
+                            );
+                        }
                     }
-                    
+
                     search_start += offset + pattern.len();
                 }
             }
@@ -1300,7 +1478,13 @@ impl SemanticTokensBuilder {
                     let value_offset = offset + "\"type\": \"".len();
                     if tokenized_offsets.insert(value_offset) {
                         let pos = self.offset_to_position(value_offset);
-                        self.add_token(pos.line, pos.character, type_ref.len() as u32, TOKEN_TYPE_TYPE, 0);
+                        self.add_token(
+                            pos.line,
+                            pos.character,
+                            type_ref.len() as u32,
+                            TOKEN_TYPE_TYPE,
+                            0,
+                        );
                     }
                 }
             }
@@ -1321,7 +1505,14 @@ impl SemanticTokensBuilder {
     }
 
     /// Add a token to the list
-    fn add_token(&mut self, line: u32, character: u32, length: u32, token_type: u32, token_modifiers: u32) {
+    fn add_token(
+        &mut self,
+        line: u32,
+        character: u32,
+        length: u32,
+        token_type: u32,
+        token_modifiers: u32,
+    ) {
         self.tokens.push(Token {
             line,
             character,
@@ -1393,5 +1584,186 @@ impl SemanticTokensBuilder {
 impl Default for ServerState {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn test_format_simple_record() {
+        let state = ServerState::new();
+        let uri = Url::parse("file:///test.avsc").unwrap();
+
+        // Unformatted JSON with no spaces
+        let unformatted =
+            r#"{"type":"record","name":"User","fields":[{"name":"id","type":"long"}]}"#;
+
+        state
+            .did_open(uri.clone(), unformatted.to_string(), 1)
+            .await;
+
+        let result = state.format_document(&uri).await;
+        assert!(result.is_ok(), "Formatting should succeed");
+
+        let edit = result.unwrap().unwrap();
+        let formatted = edit.new_text;
+
+        // Check that it's properly formatted with 2-space indentation
+        assert!(formatted.contains("  \"type\": \"record\""));
+        assert!(formatted.contains("  \"name\": \"User\""));
+        assert!(formatted.contains("  \"fields\": ["));
+        assert!(formatted.ends_with("}\n"), "Should end with newline");
+    }
+
+    #[tokio::test]
+    async fn test_format_removes_trailing_commas() {
+        let state = ServerState::new();
+        let uri = Url::parse("file:///test.avsc").unwrap();
+
+        // JSON with trailing commas (invalid JSON but common mistake)
+        let with_trailing =
+            r#"{"type":"record","name":"User","fields":[{"name":"id","type":"long",}]}"#;
+
+        state
+            .did_open(uri.clone(), with_trailing.to_string(), 1)
+            .await;
+
+        let result = state.format_document(&uri).await;
+        assert!(
+            result.is_ok(),
+            "Formatting should succeed and remove trailing commas"
+        );
+
+        let edit = result.unwrap().unwrap();
+        let formatted = edit.new_text;
+
+        // Verify trailing commas are removed
+        assert!(
+            !formatted.contains(",}"),
+            "Should not contain trailing comma before }}"
+        );
+        assert!(
+            !formatted.contains(",]"),
+            "Should not contain trailing comma before ]"
+        );
+
+        // Verify it's valid JSON that can be parsed
+        let parsed: serde_json::Value = serde_json::from_str(&formatted).unwrap();
+        assert_eq!(parsed["type"], "record");
+    }
+
+    #[tokio::test]
+    async fn test_format_nested_record() {
+        let state = ServerState::new();
+        let uri = Url::parse("file:///test.avsc").unwrap();
+
+        let unformatted = r#"{"type":"record","name":"Person","fields":[{"name":"address","type":{"type":"record","name":"Address","fields":[{"name":"city","type":"string"}]}}]}"#;
+
+        state
+            .did_open(uri.clone(), unformatted.to_string(), 1)
+            .await;
+
+        let result = state.format_document(&uri).await;
+        assert!(result.is_ok());
+
+        let edit = result.unwrap().unwrap();
+        let formatted = edit.new_text;
+
+        // Check nested structure is properly indented
+        assert!(
+            formatted.contains("    \"type\": \"record\""),
+            "Nested record should be indented 4 spaces"
+        );
+        assert!(
+            formatted.contains("      \"name\": \"Address\""),
+            "Nested fields should be indented 6 spaces"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_format_invalid_json() {
+        let state = ServerState::new();
+        let uri = Url::parse("file:///test.avsc").unwrap();
+
+        // Invalid JSON - missing closing brace
+        let invalid = r#"{"type": "record""#;
+
+        state.did_open(uri.clone(), invalid.to_string(), 1).await;
+
+        let result = state.format_document(&uri).await;
+        assert!(result.is_err(), "Should return error for invalid JSON");
+
+        let err = result.unwrap_err();
+        assert_eq!(err.code, async_lsp::ErrorCode::PARSE_ERROR);
+        assert!(err.message.contains("Invalid JSON"));
+    }
+
+    #[tokio::test]
+    async fn test_format_idempotent() {
+        let state = ServerState::new();
+        let uri = Url::parse("file:///test.avsc").unwrap();
+
+        let unformatted =
+            r#"{"type":"record","name":"User","fields":[{"name":"id","type":"long"}]}"#;
+
+        state
+            .did_open(uri.clone(), unformatted.to_string(), 1)
+            .await;
+
+        // Format once
+        let result1 = state.format_document(&uri).await.unwrap().unwrap();
+        let formatted1 = result1.new_text;
+
+        // Update document with formatted text
+        state.did_change(uri.clone(), formatted1.clone(), 2).await;
+
+        // Format again
+        let result2 = state.format_document(&uri).await.unwrap().unwrap();
+        let formatted2 = result2.new_text;
+
+        // Should be identical
+        assert_eq!(formatted1, formatted2, "Formatting should be idempotent");
+    }
+
+    #[tokio::test]
+    async fn test_format_enum_with_symbols() {
+        let state = ServerState::new();
+        let uri = Url::parse("file:///test.avsc").unwrap();
+
+        let unformatted = r#"{"type":"enum","name":"Color","symbols":["RED","GREEN","BLUE"]}"#;
+
+        state
+            .did_open(uri.clone(), unformatted.to_string(), 1)
+            .await;
+
+        let result = state.format_document(&uri).await;
+        assert!(result.is_ok());
+
+        let edit = result.unwrap().unwrap();
+        let formatted = edit.new_text;
+
+        // Check that symbols array is formatted
+        assert!(formatted.contains("  \"symbols\": ["));
+        assert!(formatted.contains("\"RED\""));
+    }
+
+    #[tokio::test]
+    async fn test_remove_trailing_commas() {
+        let state = ServerState::new();
+
+        // Test various trailing comma scenarios
+        let test_cases = vec![
+            (r#"{"foo":"bar",}"#, r#"{"foo":"bar"}"#),
+            (r#"{"arr":[1,2,3,]}"#, r#"{"arr":[1,2,3]}"#),
+            (r#"{"obj":{"a":1,},"b":2}"#, r#"{"obj":{"a":1},"b":2}"#),
+            (r#"[1,2,3,]"#, r#"[1,2,3]"#),
+        ];
+
+        for (input, expected) in test_cases {
+            let result = state.remove_trailing_commas(input);
+            assert_eq!(result, expected, "Failed for input: {}", input);
+        }
     }
 }

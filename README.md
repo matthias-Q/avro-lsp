@@ -43,6 +43,14 @@ A Language Server Protocol (LSP) implementation for Apache Avro schema files (`.
   - Works for all named types (records, enums, fixed)
   - Returns to original position easily with editor's jump-back command
 
+### Phase 3A (Complete) ✅
+- [x] **Document formatting** - Format `.avsc` files with consistent style:
+  - Uses 2-space indentation (standard JSON formatting)
+  - Automatically removes trailing commas (invalid JSON)
+  - Preserves JSON semantics and schema structure
+  - Idempotent formatting (format twice = same result)
+  - Returns error for invalid JSON rather than silent failure
+
 ## Installation
 
 ### From Source

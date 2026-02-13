@@ -256,7 +256,7 @@ mod tests {
     #[test]
     fn test_validate_record_with_union() {
         use crate::schema::parser::AvroParser;
-        
+
         let mut parser = AvroParser::new();
         let json = r#"{
             "type": "record",
@@ -267,12 +267,12 @@ mod tests {
             ]
         }"#;
         let schema = parser.parse(json).unwrap();
-        
+
         let validator = AvroValidator::new();
         let result = validator.validate(&schema);
-        
+
         match result {
-            Ok(_) => {}, // This is what we expect
+            Ok(_) => {} // This is what we expect
             Err(e) => panic!("Validation should pass for valid union, got error: {:?}", e),
         }
     }

@@ -1,5 +1,5 @@
 use async_lsp::router::Router;
-use async_lsp::{lsp_types::*, ClientSocket, LanguageClient, LanguageServer, ResponseError};
+use async_lsp::{ClientSocket, LanguageClient, LanguageServer, ResponseError, lsp_types::*};
 use futures::future::BoxFuture;
 use std::ops::ControlFlow;
 
@@ -83,6 +83,7 @@ impl LanguageServer for AvroLanguageServer {
                             },
                         ),
                     ),
+                    document_formatting_provider: Some(OneOf::Left(true)),
                     ..Default::default()
                 },
                 server_info: Some(ServerInfo {
@@ -257,6 +258,25 @@ impl LanguageServer for AvroLanguageServer {
             match state.get_definition(&uri, position).await {
                 Some(location) => Ok(Some(GotoDefinitionResponse::Scalar(location))),
                 None => Ok(None),
+            }
+        })
+    }
+
+    fn formatting(
+        &mut self,
+        params: DocumentFormattingParams,
+    ) -> BoxFuture<'static, Result<Option<Vec<TextEdit>>, Self::Error>> {
+        let uri = params.text_document.uri;
+
+        tracing::debug!("Format document request for {}", uri);
+
+        let state = self.state.clone();
+
+        Box::pin(async move {
+            match state.format_document(&uri).await {
+                Ok(Some(edit)) => Ok(Some(vec![edit])),
+                Ok(None) => Ok(None),
+                Err(e) => Err(e),
             }
         })
     }
