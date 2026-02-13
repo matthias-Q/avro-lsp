@@ -1,0 +1,29 @@
+{
+  "type": "record",
+  "name": "Person",
+  "namespace": "com.example.model",
+  "doc": "A person record with nested address",
+  "fields": [
+    {
+      "name": "name",
+      "type": "string",
+      "doc": "Person's full name"
+    },
+    {
+      "name": "age",
+      "type": "int"
+    },
+    {
+      "name": "address",
+      "type": {
+        "type": "record",
+        "name": "Address",
+        "fields": [
+          {"name": "street", "type": "string"},
+          {"name": "city", "type": "string"},
+          {"name": "zip", "type": "string"}
+        ]
+      }
+    }
+  ]
+}

@@ -1,0 +1,9 @@
+{
+  "type": "record",
+  "name": "Response",
+  "namespace": "com.example",
+  "fields": [
+    {"name": "data", "type": ["null", "string"], "default": null},
+    {"name": "error_code", "type": ["null", "int"], "default": null}
+  ]
+}

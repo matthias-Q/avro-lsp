@@ -1,0 +1,7 @@
+{
+  "type": "record",
+  "name": "123Invalid",
+  "fields": [
+    {"name": "value", "type": "string"}
+  ]
+}

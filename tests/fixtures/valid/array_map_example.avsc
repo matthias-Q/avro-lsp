@@ -1,0 +1,20 @@
+{
+  "type": "record",
+  "name": "Container",
+  "fields": [
+    {
+      "name": "items",
+      "type": {
+        "type": "array",
+        "items": "string"
+      }
+    },
+    {
+      "name": "metadata",
+      "type": {
+        "type": "map",
+        "values": "long"
+      }
+    }
+  ]
+}

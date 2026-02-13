@@ -1,0 +1,5 @@
+{
+  "type": "enum",
+  "name": "Colors",
+  "symbols": ["RED", "GREEN", "RED"]
+}

@@ -1,0 +1,8 @@
+{
+  "type": "record",
+  "name": "Test",
+  "namespace": "123.invalid",
+  "fields": [
+    {"name": "value", "type": "string"}
+  ]
+}
