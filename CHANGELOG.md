@@ -2,6 +2,26 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.1.6] - 2026-02-13
+
+### Features
+
+- Add more types
+- Add validation quickfixes
+
+### Bug Fixes
+
+- Quick fixes for validation erros
+- Quick fixes for validaton errors
+
+### Refactor
+
+- Better internal error handling
+
+### Miscellaneous Tasks
+
+- *(release)* Release version v0.1.6
+
 ## [0.1.5] - 2026-02-13
 
 ### Documentation
