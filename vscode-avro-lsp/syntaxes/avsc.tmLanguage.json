@@ -6,8 +6,57 @@
   ],
   "patterns": [
     {
-      "include": "source.json"
+      "include": "#value"
     }
   ],
-  "comment": "Avro schemas are JSON files. Syntax highlighting is provided by the LSP server via semantic tokens."
+  "repository": {
+    "value": {
+      "patterns": [
+        {
+          "include": "#array"
+        },
+        {
+          "include": "source.json#object"
+        },
+        {
+          "include": "source.json#string"
+        },
+        {
+          "include": "source.json#number"
+        },
+        {
+          "include": "source.json#constant"
+        }
+      ]
+    },
+    "array": {
+      "name": "meta.structure.array.json",
+      "begin": "\\[",
+      "beginCaptures": {
+        "0": {
+          "name": "punctuation.definition.array.begin.json"
+        }
+      },
+      "end": "\\]",
+      "endCaptures": {
+        "0": {
+          "name": "punctuation.definition.array.end.json"
+        }
+      },
+      "patterns": [
+        {
+          "include": "#value"
+        },
+        {
+          "match": ",",
+          "name": "punctuation.separator.array.json"
+        },
+        {
+          "match": "[^\\s\\]]",
+          "name": "invalid.illegal.expected-array-separator.json"
+        }
+      ]
+    }
+  },
+  "comment": "Avro schemas are JSON files with consistent bracket highlighting"
 }

@@ -1,8 +1,25 @@
-.vscode/**
-.gitignore
-.git/**
+# Source files (we bundle everything into dist/)
 src/**
 tsconfig.json
-.vscodeignore
-**/*.map
+esbuild.js
+
+# Development files
+.vscode/**
+.vscode-test/**
+.gitignore
+.git/**
 **/.DS_Store
+
+# We bundle all dependencies, so exclude node_modules entirely
+node_modules/**
+
+# Old build output (we use dist/ now)
+out/**
+
+# Build artifacts not needed in package
+*.vsix
+
+# Config files
+.eslintrc.json
+.prettierrc
+jest.config.js

@@ -21,6 +21,12 @@ fmt-check:
 # Clean build artifacts
 clean:
     cargo clean
+    rm -rf vscode-avro-lsp/node_modules
+    rm -rf vscode-avro-lsp/out
+    rm -rf vscode-avro-lsp/dist
+    rm -rf vscode-avro-lsp/bin
+    rm -f vscode-avro-lsp/*.vsix
+    rm -f *.avsc
 
 # Run the binary
 run:
@@ -69,7 +75,7 @@ push-release:
 
 # Build VS Code extension
 build-extension:
-    cd vscode-avro-lsp && npm install && npm run compile
+    cd vscode-avro-lsp && npm install && npm run build
 
 # Package VS Code extension into .vsix file (includes building the LSP binary)
 package-extension: build
