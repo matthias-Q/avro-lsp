@@ -397,7 +397,7 @@ fn create_sort_fields_action(
     let field_names: Vec<&str> = record.fields.iter().map(|f| f.name.as_str()).collect();
     let mut sorted_names = field_names.clone();
     sorted_names.sort();
-    
+
     if field_names == sorted_names {
         // Already sorted, no action needed
         return None;
@@ -406,19 +406,19 @@ fn create_sort_fields_action(
     // We need to find the range covering all fields and replace with sorted version
     let first_field = record.fields.first()?;
     let last_field = record.fields.last()?;
-    
+
     let first_range = first_field.range.as_ref()?;
     let last_range = last_field.range.as_ref()?;
-    
+
     let fields_range = Range {
         start: first_range.start,
         end: last_range.end,
     };
-    
+
     // Sort fields by name
     let mut sorted_fields = record.fields.clone();
     sorted_fields.sort_by(|a, b| a.name.cmp(&b.name));
-    
+
     // Serialize sorted fields as JSON
     let mut sorted_json = Vec::new();
     for (i, field) in sorted_fields.iter().enumerate() {
@@ -430,13 +430,13 @@ fn create_sort_fields_action(
             "order": field.order,
             "aliases": field.aliases,
         });
-        
+
         // Remove null fields for cleaner output
         let mut field_map = field_json.as_object()?.clone();
         field_map.retain(|_, v| !v.is_null());
-        
+
         let field_str = serde_json::to_string_pretty(&field_map).ok()?;
-        
+
         if i > 0 {
             sorted_json.push(",\n    ".to_string());
         } else {
@@ -444,9 +444,9 @@ fn create_sort_fields_action(
         }
         sorted_json.push(field_str);
     }
-    
+
     let new_text = sorted_json.concat();
-    
+
     let mut changes = HashMap::new();
     changes.insert(
         uri.clone(),
@@ -482,17 +482,17 @@ fn create_add_default_value_action(
 
     // Determine appropriate default value based on type
     let default_value = get_default_for_type(&field.field_type)?;
-    
+
     let type_range = field.type_range.as_ref()?;
-    
+
     // Insert after the type field
     let insert_position = Position {
         line: type_range.end.line,
         character: type_range.end.character,
     };
-    
+
     let insert_text = format!(", \"default\": {}", default_value);
-    
+
     let mut changes = HashMap::new();
     changes.insert(
         uri.clone(),
@@ -812,7 +812,7 @@ mod tests {
             let sort_action = actions
                 .iter()
                 .find(|a| a.title == "Sort fields alphabetically");
-            
+
             assert!(
                 sort_action.is_none(),
                 "Should not have sort action when fields are already sorted"
@@ -894,7 +894,7 @@ mod tests {
             let add_default = actions
                 .iter()
                 .find(|a| a.title.contains("Add default value"));
-            
+
             assert!(
                 add_default.is_none(),
                 "Should not have 'Add default value' when default already exists"

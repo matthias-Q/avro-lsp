@@ -9,7 +9,7 @@ use crate::state::{AstNode, find_node_at_position, position_in_range};
 use crate::workspace::Workspace;
 
 /// Perform rename operation
-#[allow(dead_code)]  // Kept for backward compatibility
+#[allow(dead_code)] // Kept for backward compatibility
 pub fn rename(
     schema: &AvroSchema,
     text: &str,
@@ -192,14 +192,21 @@ pub fn rename_with_workspace(
                 }
 
                 // Collect edits for current file
-                let current_file_edits = collect_type_rename_edits(schema, text, old_name, new_name);
+                let current_file_edits =
+                    collect_type_rename_edits(schema, text, old_name, new_name);
                 if !current_file_edits.is_empty() {
                     changes.insert(uri.clone(), current_file_edits);
                 }
 
                 // If workspace available, collect edits across all files
                 if let Some(workspace) = workspace {
-                    collect_cross_file_rename_edits(workspace, uri, old_name, new_name, &mut changes);
+                    collect_cross_file_rename_edits(
+                        workspace,
+                        uri,
+                        old_name,
+                        new_name,
+                        &mut changes,
+                    );
                 }
             }
         }
@@ -216,13 +223,20 @@ pub fn rename_with_workspace(
                     ));
                 }
 
-                let current_file_edits = collect_type_rename_edits(schema, text, old_name, new_name);
+                let current_file_edits =
+                    collect_type_rename_edits(schema, text, old_name, new_name);
                 if !current_file_edits.is_empty() {
                     changes.insert(uri.clone(), current_file_edits);
                 }
 
                 if let Some(workspace) = workspace {
-                    collect_cross_file_rename_edits(workspace, uri, old_name, new_name, &mut changes);
+                    collect_cross_file_rename_edits(
+                        workspace,
+                        uri,
+                        old_name,
+                        new_name,
+                        &mut changes,
+                    );
                 }
             }
         }
@@ -261,13 +275,20 @@ pub fn rename_with_workspace(
                     ));
                 }
 
-                let current_file_edits = collect_type_rename_edits(schema, text, old_name, new_name);
+                let current_file_edits =
+                    collect_type_rename_edits(schema, text, old_name, new_name);
                 if !current_file_edits.is_empty() {
                     changes.insert(uri.clone(), current_file_edits);
                 }
 
                 if let Some(workspace) = workspace {
-                    collect_cross_file_rename_edits(workspace, uri, old_name, new_name, &mut changes);
+                    collect_cross_file_rename_edits(
+                        workspace,
+                        uri,
+                        old_name,
+                        new_name,
+                        &mut changes,
+                    );
                 }
             }
         }
@@ -284,13 +305,20 @@ pub fn rename_with_workspace(
                     ));
                 }
 
-                let current_file_edits = collect_type_rename_edits(schema, text, old_name, new_name);
+                let current_file_edits =
+                    collect_type_rename_edits(schema, text, old_name, new_name);
                 if !current_file_edits.is_empty() {
                     changes.insert(uri.clone(), current_file_edits);
                 }
 
                 if let Some(workspace) = workspace {
-                    collect_cross_file_rename_edits(workspace, uri, old_name, new_name, &mut changes);
+                    collect_cross_file_rename_edits(
+                        workspace,
+                        uri,
+                        old_name,
+                        new_name,
+                        &mut changes,
+                    );
                 }
             }
         }
@@ -369,7 +397,7 @@ pub fn prepare_rename(schema: &AvroSchema, position: Position) -> Option<Prepare
 }
 
 /// Find all references to a symbol
-#[allow(dead_code)]  // Kept for backward compatibility
+#[allow(dead_code)] // Kept for backward compatibility
 pub fn find_references(
     schema: &AvroSchema,
     uri: &Url,
@@ -522,7 +550,7 @@ pub fn find_references_with_workspace(
     // If workspace is available, search across all files
     if let Some(workspace) = workspace {
         let workspace_refs = workspace.find_all_references(type_name);
-        
+
         // Filter out references from the current file (already collected)
         for loc in workspace_refs {
             if loc.uri != *uri {
@@ -684,14 +712,14 @@ fn collect_cross_file_rename_edits(
             };
             changes
                 .entry(type_info.defined_in.clone())
-                    .or_default()
-                    .push(def_edit);
+                .or_default()
+                .push(def_edit);
         }
     }
-    
+
     // Find all references to the type across the workspace
     let references = workspace.find_all_references(old_name);
-    
+
     // Group references by file URI
     let mut edits_by_file: HashMap<Url, Vec<Range>> = HashMap::new();
     for location in references {
@@ -699,13 +727,13 @@ fn collect_cross_file_rename_edits(
         if location.uri == *current_uri {
             continue;
         }
-        
+
         edits_by_file
             .entry(location.uri)
             .or_default()
             .push(location.range);
     }
-    
+
     // Convert ranges to TextEdits for each file
     for (file_uri, ranges) in edits_by_file {
         let edits: Vec<TextEdit> = ranges
@@ -715,13 +743,10 @@ fn collect_cross_file_rename_edits(
                 new_text: format!("\"{}\"", new_name),
             })
             .collect();
-        
+
         if !edits.is_empty() {
             // Append to existing edits for this file (in case we already added the definition)
-            changes
-                .entry(file_uri)
-                .or_default()
-                .extend(edits);
+            changes.entry(file_uri).or_default().extend(edits);
         }
     }
 }
@@ -736,7 +761,7 @@ mod tests {
     fn test_rename_cross_file() {
         // Create workspace with multiple files
         let mut workspace = Workspace::new();
-        
+
         // Define Address type
         let address_uri = Url::parse("file:///address.avsc").unwrap();
         let address_schema = r#"{
@@ -745,8 +770,10 @@ mod tests {
   "namespace": "com.example",
   "fields": [{"name": "city", "type": "string"}]
 }"#;
-        workspace.update_file(address_uri.clone(), address_schema.to_string()).unwrap();
-        
+        workspace
+            .update_file(address_uri.clone(), address_schema.to_string())
+            .unwrap();
+
         // User references Address
         let user_uri = Url::parse("file:///user.avsc").unwrap();
         let user_schema = r#"{
@@ -755,8 +782,10 @@ mod tests {
   "namespace": "com.example",
   "fields": [{"name": "address", "type": "Address"}]
 }"#;
-        workspace.update_file(user_uri.clone(), user_schema.to_string()).unwrap();
-        
+        workspace
+            .update_file(user_uri.clone(), user_schema.to_string())
+            .unwrap();
+
         // Company also references Address
         let company_uri = Url::parse("file:///company.avsc").unwrap();
         let company_schema = r#"{
@@ -768,15 +797,20 @@ mod tests {
     {"name": "ceo", "type": "User"}
   ]
 }"#;
-        workspace.update_file(company_uri.clone(), company_schema.to_string()).unwrap();
-        
+        workspace
+            .update_file(company_uri.clone(), company_schema.to_string())
+            .unwrap();
+
         // Parse the address schema
         let mut parser = AvroParser::new();
         let schema = parser.parse(address_schema).unwrap();
-        
+
         // Position on the "Address" name declaration (line 2, after "name": ")
-        let position = Position { line: 2, character: 10 };
-        
+        let position = Position {
+            line: 2,
+            character: 10,
+        };
+
         // Rename Address to Location
         let result = rename_with_workspace(
             &schema,
@@ -786,29 +820,38 @@ mod tests {
             "Location",
             Some(&workspace),
         );
-        
+
         assert!(result.is_ok(), "Rename should succeed");
         let edit = result.unwrap();
         assert!(edit.is_some(), "Should return workspace edit");
-        
+
         let workspace_edit = edit.unwrap();
         let changes = workspace_edit.changes.unwrap();
-        
+
         // Should have edits for all 3 files
-        println!("Files with changes: {:?}", changes.keys().collect::<Vec<_>>());
+        println!(
+            "Files with changes: {:?}",
+            changes.keys().collect::<Vec<_>>()
+        );
         println!("address_uri edits: {:?}", changes.get(&address_uri));
         println!("user_uri edits: {:?}", changes.get(&user_uri));
         println!("company_uri edits: {:?}", changes.get(&company_uri));
-        
-        assert!(changes.contains_key(&address_uri), "Should edit address.avsc");
+
+        assert!(
+            changes.contains_key(&address_uri),
+            "Should edit address.avsc"
+        );
         assert!(changes.contains_key(&user_uri), "Should edit user.avsc");
-        assert!(changes.contains_key(&company_uri), "Should edit company.avsc");
-        
+        assert!(
+            changes.contains_key(&company_uri),
+            "Should edit company.avsc"
+        );
+
         // Verify user.avsc has the rename
         let user_edits = changes.get(&user_uri).unwrap();
         assert!(!user_edits.is_empty(), "User file should have edits");
         assert_eq!(user_edits[0].new_text, "\"Location\"");
-        
+
         // Verify company.avsc has the rename
         let company_edits = changes.get(&company_uri).unwrap();
         assert!(!company_edits.is_empty(), "Company file should have edits");
@@ -827,26 +870,22 @@ mod tests {
         let mut parser = AvroParser::new();
         let schema = parser.parse(schema_text).unwrap();
         let uri = Url::parse("file:///test.avsc").unwrap();
-        
+
         // Position on "User" name
-        let position = Position { line: 2, character: 10 };
-        
-        let result = rename_with_workspace(
-            &schema,
-            schema_text,
-            &uri,
-            position,
-            "Person",
-            None,
-        );
-        
+        let position = Position {
+            line: 2,
+            character: 10,
+        };
+
+        let result = rename_with_workspace(&schema, schema_text, &uri, position, "Person", None);
+
         assert!(result.is_ok());
         let edit = result.unwrap();
         assert!(edit.is_some());
-        
+
         let workspace_edit = edit.unwrap();
         let changes = workspace_edit.changes.unwrap();
-        
+
         // Should only have edits for current file
         assert_eq!(changes.len(), 1);
         assert!(changes.contains_key(&uri));
@@ -856,9 +895,9 @@ mod tests {
     fn test_rename_from_type_reference_in_different_file() {
         // This tests the scenario where you're in user.avsc and rename "Address"
         // The definition is in address.avsc, so it should rename across both files
-        
+
         let mut workspace = Workspace::new();
-        
+
         // Define Address type in address.avsc
         let address_uri = Url::parse("file:///address.avsc").unwrap();
         let address_schema = r#"{
@@ -867,8 +906,10 @@ mod tests {
   "namespace": "com.example",
   "fields": [{"name": "city", "type": "string"}]
 }"#;
-        workspace.update_file(address_uri.clone(), address_schema.to_string()).unwrap();
-        
+        workspace
+            .update_file(address_uri.clone(), address_schema.to_string())
+            .unwrap();
+
         // User references Address in user.avsc
         let user_uri = Url::parse("file:///user.avsc").unwrap();
         let user_schema = r#"{
@@ -877,17 +918,22 @@ mod tests {
   "namespace": "com.example",
   "fields": [{"name": "address", "type": "Address"}]
 }"#;
-        workspace.update_file(user_uri.clone(), user_schema.to_string()).unwrap();
-        
+        workspace
+            .update_file(user_uri.clone(), user_schema.to_string())
+            .unwrap();
+
         // Parse user schema (we're working in user.avsc)
         let mut parser = AvroParser::new();
         let schema = parser.parse(user_schema).unwrap();
-        
+
         // Position on "Address" in user.avsc - this is a TYPE REFERENCE, not definition
         // Line 4: {"name": "address", "type": "Address"}
         //                                      ^cursor here
-        let position = Position { line: 4, character: 41 };
-        
+        let position = Position {
+            line: 4,
+            character: 41,
+        };
+
         // Rename Address to Location from the reference
         let result = rename_with_workspace(
             &schema,
@@ -897,34 +943,47 @@ mod tests {
             "Location",
             Some(&workspace),
         );
-        
+
         assert!(result.is_ok(), "Rename should succeed: {:?}", result);
         let edit = result.unwrap();
         assert!(edit.is_some(), "Should return workspace edit");
-        
+
         let workspace_edit = edit.unwrap();
         let changes = workspace_edit.changes.unwrap();
-        
-        println!("Files with changes: {:?}", changes.keys().collect::<Vec<_>>());
-        
+
+        println!(
+            "Files with changes: {:?}",
+            changes.keys().collect::<Vec<_>>()
+        );
+
         // Should have edits for BOTH files:
         // 1. address.avsc - the definition
         // 2. user.avsc - the reference
-        assert!(changes.contains_key(&address_uri), 
-                "Should edit address.avsc (definition file), changes: {:?}", changes);
-        assert!(changes.contains_key(&user_uri), 
-                "Should edit user.avsc (current file with reference), changes: {:?}", changes);
-        
+        assert!(
+            changes.contains_key(&address_uri),
+            "Should edit address.avsc (definition file), changes: {:?}",
+            changes
+        );
+        assert!(
+            changes.contains_key(&user_uri),
+            "Should edit user.avsc (current file with reference), changes: {:?}",
+            changes
+        );
+
         // Verify address.avsc has the definition renamed
         let address_edits = changes.get(&address_uri).unwrap();
         assert!(!address_edits.is_empty(), "Address file should have edits");
-        assert_eq!(address_edits[0].new_text, "\"Location\"", 
-                   "Should rename definition to Location");
-        
+        assert_eq!(
+            address_edits[0].new_text, "\"Location\"",
+            "Should rename definition to Location"
+        );
+
         // Verify user.avsc has the reference renamed
         let user_edits = changes.get(&user_uri).unwrap();
         assert!(!user_edits.is_empty(), "User file should have edits");
-        assert_eq!(user_edits[0].new_text, "\"Location\"",
-                   "Should rename reference to Location");
+        assert_eq!(
+            user_edits[0].new_text, "\"Location\"",
+            "Should rename reference to Location"
+        );
     }
 }

@@ -4,7 +4,7 @@ This guide provides essential information for AI coding agents and human develop
 
 **Project Goal**: Provide IDE-like features (diagnostics, validation, hover, semantic highlighting, inlay hints, completion, go to definition, formatting, code actions) for `.avsc` files in editors like Neovim.
 
-**Current Status**: Phase 3C Complete - Code actions and inlay hints implemented, VS Code extension available
+**Current Status**: Multi-file support complete - Workspace features, folding ranges, code actions, and inlay hints implemented, VS Code extension available
 
 **Tech Stack**: Rust (edition 2024), async-lsp framework, serde/serde_json for parsing, tokio async runtime
 
@@ -64,6 +64,32 @@ This guide provides essential information for AI coding agents and human develop
   - **Make field nullable** - Wrap field type in union with null
   - Actions appear contextually based on cursor position
   - Integrated with editor code action commands (e.g., `:lua vim.lsp.buf.code_action()` in Neovim)
+
+### Phase 4 - Workspace & Multi-file Support ✅
+- **Workspace infrastructure** - Automatic workspace scanning
+  - Scans for all `.avsc` files in workspace on initialization
+  - Requires `.git` directory in workspace root for workspace detection
+  - Maintains index of all named types across workspace
+- **Cross-file type resolution** - Types can reference definitions in other files
+  - Validates type references across multiple schema files
+  - Resolves fully qualified names (e.g., `com.example.Address`)
+  - Reports errors for undefined types even across files
+- **Cross-file go-to-definition** - Navigate between schema files
+  - Jump to type definition in any workspace file
+  - Works with Ctrl+Click (Cmd+Click on macOS)
+- **Cross-file find-references** - Find usages across workspace
+  - Locate all references to a type in all workspace files
+  - Shows file location and line number for each reference
+- **Cross-file rename** - Rename types across all files
+  - Renames type definitions and all references in workspace
+  - Works from either definition or reference location
+  - Updates multiple files in single operation
+  - Maintains schema consistency across workspace
+- **Folding ranges** - Code folding support
+  - Fold record definitions (entire record body)
+  - Fold fields arrays
+  - Fold enum symbols
+  - Improves navigation in large schema files
 
 ---
 

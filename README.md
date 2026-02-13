@@ -58,6 +58,7 @@ A Language Server Protocol (LSP) implementation for Apache Avro schema files (`.
 
 - **Rename symbol** - Safely rename types:
   - Rename types and update all references automatically
+  - Works across multiple files in workspace
   - Preview changes before applying
   - Maintains schema consistency
 
@@ -65,6 +66,12 @@ A Language Server Protocol (LSP) implementation for Apache Avro schema files (`.
   - See all types and fields at a glance
   - Navigate quickly between definitions
   - Understand schema structure instantly
+
+- **Folding ranges** - Code folding support:
+  - Collapse/expand record definitions
+  - Fold field arrays for better overview
+  - Fold enum symbols
+  - Improves navigation in large schemas
 
 ### Code Quality
 
@@ -89,6 +96,14 @@ A Language Server Protocol (LSP) implementation for Apache Avro schema files (`.
   - Primitive types consistently highlighted
   - Enum symbols
   - Context-aware coloring that understands schema structure
+
+- **Multi-file workspace support** - Work with multiple schema files:
+  - Cross-file type references (reference types defined in other `.avsc` files)
+  - Cross-file go-to-definition (jump to definitions in other files)
+  - Cross-file find-references (find usages across all workspace files)
+  - Cross-file rename (rename types and update all files)
+  - Automatic workspace scanning (finds all `.avsc` files in workspace)
+  - Requires `.git` directory in workspace root for workspace detection
 
 ## Installation
 

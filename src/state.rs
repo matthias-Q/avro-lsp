@@ -186,7 +186,10 @@ impl ServerState {
         // Check if .git directory exists to confirm it's a valid workspace
         let git_path = root_path.join(".git");
         if !git_path.exists() {
-            tracing::warn!("No .git directory found at {:?}, workspace scanning disabled", root_path);
+            tracing::warn!(
+                "No .git directory found at {:?}, workspace scanning disabled",
+                root_path
+            );
             return Ok(());
         }
 
@@ -232,8 +235,7 @@ impl ServerState {
                 .map_err(|e| format!("Failed to read directory {:?}: {}", dir, e))?;
 
             for entry in entries {
-                let entry = entry
-                    .map_err(|e| format!("Failed to read directory entry: {}", e))?;
+                let entry = entry.map_err(|e| format!("Failed to read directory entry: {}", e))?;
                 let path = entry.path();
 
                 // Skip hidden directories and common non-relevant directories
@@ -257,7 +259,7 @@ impl ServerState {
     /// Open a document and parse/validate it
     pub async fn did_open(&self, uri: Url, text: String, version: i32) -> Vec<Diagnostic> {
         let mut state = self.inner.write().await;
-        
+
         // Validate with workspace context for cross-file type checking
         let diagnostics = crate::handlers::diagnostics::parse_and_validate_with_workspace(
             &text,

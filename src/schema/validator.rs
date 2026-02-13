@@ -65,11 +65,19 @@ impl AvroValidator {
     ) -> Result<()> {
         match avro_type {
             AvroType::Primitive(_) => Ok(()),
-            AvroType::Record(record) => self.validate_record_with_resolver(record, named_types, resolver),
+            AvroType::Record(record) => {
+                self.validate_record_with_resolver(record, named_types, resolver)
+            }
             AvroType::Enum(enum_schema) => self.validate_enum(enum_schema),
-            AvroType::Array(array) => self.validate_type_with_resolver(&array.items, named_types, resolver),
-            AvroType::Map(map) => self.validate_type_with_resolver(&map.values, named_types, resolver),
-            AvroType::Union(types) => self.validate_union_with_resolver(types, named_types, resolver),
+            AvroType::Array(array) => {
+                self.validate_type_with_resolver(&array.items, named_types, resolver)
+            }
+            AvroType::Map(map) => {
+                self.validate_type_with_resolver(&map.values, named_types, resolver)
+            }
+            AvroType::Union(types) => {
+                self.validate_union_with_resolver(types, named_types, resolver)
+            }
             AvroType::Fixed(fixed) => self.validate_fixed(fixed),
             AvroType::TypeRef(type_ref) => {
                 self.validate_type_reference_with_resolver(&type_ref.name, named_types, resolver)
@@ -77,7 +85,7 @@ impl AvroValidator {
         }
     }
 
-    #[allow(dead_code)]  // Internal helper, kept for backward compatibility
+    #[allow(dead_code)] // Internal helper, kept for backward compatibility
     fn validate_record(
         &self,
         record: &RecordSchema,
@@ -224,7 +232,7 @@ impl AvroValidator {
         Ok(())
     }
 
-    #[allow(dead_code)]  // Internal helper, kept for backward compatibility
+    #[allow(dead_code)] // Internal helper, kept for backward compatibility
     fn validate_union(
         &self,
         types: &[AvroType],
@@ -268,7 +276,7 @@ impl AvroValidator {
         Ok(())
     }
 
-    #[allow(dead_code)]  // Internal helper, kept for backward compatibility
+    #[allow(dead_code)] // Internal helper, kept for backward compatibility
     fn validate_type_reference(
         &self,
         name: &str,

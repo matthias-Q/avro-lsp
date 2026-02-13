@@ -36,30 +36,32 @@ fn collect_folding_ranges(avro_type: &AvroType, ranges: &mut Vec<FoldingRange>) 
         AvroType::Enum(enum_schema) => {
             // Fold the entire enum definition
             if let Some(range) = &enum_schema.range
-                && range.end.line > range.start.line {
-                    ranges.push(FoldingRange {
-                        start_line: range.start.line,
-                        end_line: range.end.line,
-                        start_character: Some(range.start.character),
-                        end_character: Some(range.end.character),
-                        kind: Some(FoldingRangeKind::Region),
-                        collapsed_text: Some(format!("enum {}", enum_schema.name)),
-                    });
-                }
+                && range.end.line > range.start.line
+            {
+                ranges.push(FoldingRange {
+                    start_line: range.start.line,
+                    end_line: range.end.line,
+                    start_character: Some(range.start.character),
+                    end_character: Some(range.end.character),
+                    kind: Some(FoldingRangeKind::Region),
+                    collapsed_text: Some(format!("enum {}", enum_schema.name)),
+                });
+            }
         }
         AvroType::Fixed(fixed) => {
             // Fold fixed type definitions
             if let Some(range) = &fixed.range
-                && range.end.line > range.start.line {
-                    ranges.push(FoldingRange {
-                        start_line: range.start.line,
-                        end_line: range.end.line,
-                        start_character: Some(range.start.character),
-                        end_character: Some(range.end.character),
-                        kind: Some(FoldingRangeKind::Region),
-                        collapsed_text: Some(format!("fixed {}", fixed.name)),
-                    });
-                }
+                && range.end.line > range.start.line
+            {
+                ranges.push(FoldingRange {
+                    start_line: range.start.line,
+                    end_line: range.end.line,
+                    start_character: Some(range.start.character),
+                    end_character: Some(range.end.character),
+                    kind: Some(FoldingRangeKind::Region),
+                    collapsed_text: Some(format!("fixed {}", fixed.name)),
+                });
+            }
         }
         AvroType::Array(array) => {
             // Recurse into array items

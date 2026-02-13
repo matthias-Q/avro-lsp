@@ -6,7 +6,7 @@ use crate::schema::{AvroParser, AvroSchema, AvroType, AvroValidator, TypeResolve
 
 /// Information about a named type definition
 #[derive(Debug, Clone)]
-#[allow(dead_code)]  // Fields will be used when implementing cross-file features
+#[allow(dead_code)] // Fields will be used when implementing cross-file features
 pub struct TypeInfo {
     /// The type definition
     pub type_def: AvroType,
@@ -22,7 +22,7 @@ pub struct TypeInfo {
 
 /// Manages a workspace of Avro schema files
 #[derive(Debug, Clone)]
-#[allow(dead_code)]  // Fields will be used when implementing cross-file features
+#[allow(dead_code)] // Fields will be used when implementing cross-file features
 pub struct Workspace {
     /// Root path of the workspace
     root_path: Option<PathBuf>,
@@ -53,7 +53,7 @@ impl Workspace {
     }
 
     /// Get the workspace root path
-    #[allow(dead_code)]  // Will be used for cross-file features
+    #[allow(dead_code)] // Will be used for cross-file features
     pub fn root_path(&self) -> Option<&Path> {
         self.root_path.as_deref()
     }
@@ -124,7 +124,7 @@ impl Workspace {
     }
 
     /// Resolve a type reference (check local schema first, then workspace)
-    #[allow(dead_code)]  // Will be used for cross-file validation
+    #[allow(dead_code)] // Will be used for cross-file validation
     pub fn resolve_type(&self, name: &str, from_file: &Url) -> Option<&TypeInfo> {
         // First check if it's in the same file's local types
         if let Some(schema) = self.schemas.get(from_file)
@@ -140,7 +140,7 @@ impl Workspace {
     }
 
     /// Find all references to a type across the workspace
-    #[allow(dead_code)]  // Will be used for cross-file find references
+    #[allow(dead_code)] // Will be used for cross-file find references
     pub fn find_all_references(&self, type_name: &str) -> Vec<Location> {
         let mut locations = Vec::new();
 
@@ -152,7 +152,7 @@ impl Workspace {
     }
 
     /// Find references to a type within a specific schema
-    #[allow(dead_code)]  // Helper for find_all_references
+    #[allow(dead_code)] // Helper for find_all_references
     fn find_references_in_schema(
         &self,
         uri: &Url,
@@ -165,7 +165,7 @@ impl Workspace {
     }
 
     /// Recursively collect type references
-    #[allow(dead_code)]  // Helper for find_references_in_schema
+    #[allow(dead_code)] // Helper for find_references_in_schema
     fn collect_type_refs(
         &self,
         avro_type: &AvroType,
@@ -203,7 +203,7 @@ impl Workspace {
     }
 
     /// Validate all schemas in the workspace
-    #[allow(dead_code)]  // Will be used for workspace-wide validation
+    #[allow(dead_code)] // Will be used for workspace-wide validation
     pub fn validate_all(&self) -> HashMap<Url, Vec<Diagnostic>> {
         let mut diagnostics = HashMap::new();
         let validator = AvroValidator::new();
@@ -244,7 +244,7 @@ impl Workspace {
     }
 
     /// Validate a schema with workspace context for cross-file type resolution
-    #[allow(dead_code)]  // Helper for validate_all
+    #[allow(dead_code)] // Helper for validate_all
     fn validate_schema_with_workspace(
         &self,
         schema: &AvroSchema,
@@ -256,19 +256,19 @@ impl Workspace {
     }
 
     /// Get a schema by URI
-    #[allow(dead_code)]  // Will be used for cross-file operations
+    #[allow(dead_code)] // Will be used for cross-file operations
     pub fn get_schema(&self, uri: &Url) -> Option<&AvroSchema> {
         self.schemas.get(uri)
     }
 
     /// Get all URIs in the workspace
-    #[allow(dead_code)]  // Will be used for workspace operations
+    #[allow(dead_code)] // Will be used for workspace operations
     pub fn uris(&self) -> impl Iterator<Item = &Url> {
         self.schemas.keys()
     }
 
     /// Check if workspace contains a file
-    #[allow(dead_code)]  // Will be used for workspace operations
+    #[allow(dead_code)] // Will be used for workspace operations
     pub fn contains(&self, uri: &Url) -> bool {
         self.schemas.contains_key(uri)
     }
@@ -367,10 +367,10 @@ mod tests {
     #[test]
     fn test_cross_file_validation_works() {
         use crate::handlers::diagnostics::parse_and_validate_with_workspace;
-        
+
         // Create a workspace and add the Address schema
         let mut workspace = Workspace::new();
-        
+
         let address_uri = Url::parse("file:///workspace/address.avsc").unwrap();
         let address_schema = r#"{
   "type": "record",
@@ -381,10 +381,12 @@ mod tests {
     {"name": "city", "type": "string"}
   ]
 }"#;
-        
+
         // Register Address in workspace
-        workspace.update_file(address_uri, address_schema.to_string()).unwrap();
-        
+        workspace
+            .update_file(address_uri, address_schema.to_string())
+            .unwrap();
+
         // Now validate User schema that references Address
         let user_schema = r#"{
   "type": "record",
@@ -395,26 +397,34 @@ mod tests {
     {"name": "address", "type": "Address"}
   ]
 }"#;
-        
+
         // Without workspace - should have error
         let diagnostics_without = parse_and_validate_with_workspace(user_schema, None);
-        assert!(!diagnostics_without.is_empty(), "Should have 'Unknown type reference: Address' error");
-        assert!(diagnostics_without[0].message.contains("Address"), 
-                "Error should mention Address type: {}", diagnostics_without[0].message);
-        
+        assert!(
+            !diagnostics_without.is_empty(),
+            "Should have 'Unknown type reference: Address' error"
+        );
+        assert!(
+            diagnostics_without[0].message.contains("Address"),
+            "Error should mention Address type: {}",
+            diagnostics_without[0].message
+        );
+
         // With workspace - should be valid!
         let diagnostics_with = parse_and_validate_with_workspace(user_schema, Some(&workspace));
-        assert!(diagnostics_with.is_empty(), 
-                "Should have no errors with workspace context, but got: {:?}", 
-                diagnostics_with);
+        assert!(
+            diagnostics_with.is_empty(),
+            "Should have no errors with workspace context, but got: {:?}",
+            diagnostics_with
+        );
     }
 
     #[test]
     fn test_multiple_cross_file_references() {
         use crate::handlers::diagnostics::parse_and_validate_with_workspace;
-        
+
         let mut workspace = Workspace::new();
-        
+
         // Add Address
         let address_uri = Url::parse("file:///workspace/address.avsc").unwrap();
         let address_schema = r#"{
@@ -423,8 +433,10 @@ mod tests {
   "namespace": "com.example",
   "fields": [{"name": "city", "type": "string"}]
 }"#;
-        workspace.update_file(address_uri, address_schema.to_string()).unwrap();
-        
+        workspace
+            .update_file(address_uri, address_schema.to_string())
+            .unwrap();
+
         // Add User
         let user_uri = Url::parse("file:///workspace/user.avsc").unwrap();
         let user_schema = r#"{
@@ -436,8 +448,10 @@ mod tests {
     {"name": "address", "type": "Address"}
   ]
 }"#;
-        workspace.update_file(user_uri, user_schema.to_string()).unwrap();
-        
+        workspace
+            .update_file(user_uri, user_schema.to_string())
+            .unwrap();
+
         // Company references both Address and User
         let company_schema = r#"{
   "type": "record",
@@ -449,19 +463,21 @@ mod tests {
     {"name": "ceo", "type": "User"}
   ]
 }"#;
-        
+
         let diagnostics = parse_and_validate_with_workspace(company_schema, Some(&workspace));
-        assert!(diagnostics.is_empty(), 
-                "Company should validate with both Address and User in workspace, but got: {:?}", 
-                diagnostics);
+        assert!(
+            diagnostics.is_empty(),
+            "Company should validate with both Address and User in workspace, but got: {:?}",
+            diagnostics
+        );
     }
 
     #[test]
     fn test_qualified_name_cross_file() {
         use crate::handlers::diagnostics::parse_and_validate_with_workspace;
-        
+
         let mut workspace = Workspace::new();
-        
+
         // Address in com.example namespace
         let address_uri = Url::parse("file:///workspace/address.avsc").unwrap();
         let address_schema = r#"{
@@ -470,8 +486,10 @@ mod tests {
   "namespace": "com.example",
   "fields": [{"name": "city", "type": "string"}]
 }"#;
-        workspace.update_file(address_uri, address_schema.to_string()).unwrap();
-        
+        workspace
+            .update_file(address_uri, address_schema.to_string())
+            .unwrap();
+
         // User references com.example.Address from different namespace
         let user_schema = r#"{
   "type": "record",
@@ -482,10 +500,12 @@ mod tests {
     {"name": "address", "type": "com.example.Address"}
   ]
 }"#;
-        
+
         let diagnostics = parse_and_validate_with_workspace(user_schema, Some(&workspace));
-        assert!(diagnostics.is_empty(), 
-                "Should validate qualified cross-namespace reference, but got: {:?}", 
-                diagnostics);
+        assert!(
+            diagnostics.is_empty(),
+            "Should validate qualified cross-namespace reference, but got: {:?}",
+            diagnostics
+        );
     }
 }

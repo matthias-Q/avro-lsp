@@ -110,8 +110,13 @@ mod tests {
         let schema = parser.parse(user_schema).unwrap();
 
         // Looking up "Address" should point to address.avsc
-        let location =
-            find_definition_with_workspace(&schema, user_schema, "Address", &user_uri, Some(&workspace));
+        let location = find_definition_with_workspace(
+            &schema,
+            user_schema,
+            "Address",
+            &user_uri,
+            Some(&workspace),
+        );
         assert!(location.is_some());
         let loc = location.unwrap();
         assert_eq!(loc.uri, address_uri);
@@ -130,7 +135,8 @@ mod tests {
         let uri = Url::parse("file:///test.avsc").unwrap();
 
         // "UnknownType" doesn't exist
-        let location = find_definition_with_workspace(&schema, schema_text, "UnknownType", &uri, None);
+        let location =
+            find_definition_with_workspace(&schema, schema_text, "UnknownType", &uri, None);
         assert!(location.is_none());
     }
 }

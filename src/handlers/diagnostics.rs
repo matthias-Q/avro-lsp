@@ -5,7 +5,7 @@ use crate::workspace::Workspace;
 
 /// Parse and validate Avro schema text, returning diagnostics
 /// If workspace is provided, cross-file type references will be validated
-#[allow(dead_code)]  // Used for backward compatibility
+#[allow(dead_code)] // Used for backward compatibility
 pub fn parse_and_validate(text: &str) -> Vec<Diagnostic> {
     parse_and_validate_with_workspace(text, None)
 }
