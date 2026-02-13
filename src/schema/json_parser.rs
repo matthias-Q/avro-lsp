@@ -1,5 +1,6 @@
 use async_lsp::lsp_types::{Position, Range};
 use nom::{
+    IResult,
     branch::alt,
     bytes::complete::{escaped, tag, take_while},
     character::complete::{char, multispace0, one_of},
@@ -7,7 +8,6 @@ use nom::{
     multi::separated_list0,
     number::complete::double,
     sequence::preceded,
-    IResult,
 };
 use nom_locate::LocatedSpan;
 use std::collections::HashMap;
