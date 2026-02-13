@@ -1,5 +1,8 @@
 # avro-lsp
 
+[![Pipeline Status](https://gitlab.build-unite.unite.eu/matthias.queitsch/avro-lsp/badges/main/pipeline.svg)](https://gitlab.build-unite.unite.eu/matthias.queitsch/avro-lsp/-/pipelines)
+[![Latest Release](https://gitlab.build-unite.unite.eu/matthias.queitsch/avro-lsp/-/badges/release.svg)](https://gitlab.build-unite.unite.eu/matthias.queitsch/avro-lsp/-/releases)
+
 A Language Server Protocol (LSP) implementation for Apache Avro schema files (`.avsc`).
 
 ## Features
