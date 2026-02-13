@@ -324,32 +324,6 @@ The LSP validates the following aspects of Avro schemas:
 7. **Union constraints** - No duplicate types, no nested unions
 8. **Primitive types** - Must be valid: null, boolean, int, long, float, double, bytes, string
 
-## Roadmap
-
-### Phase 1A (Complete)
-- [x] Parsing and validation
-- [x] Real-time diagnostics with precise error positioning
-
-### Phase 1B (Complete)
-- [x] Hover information (type details, documentation)
-- [x] Document symbols (outline view)
-- [x] Semantic tokens (better syntax highlighting)
-
-### Phase 2 (Complete)
-- [x] Auto-completion with snippet support
-- [x] Go to definition
-
-### Phase 3A (Complete)
-- [x] Document formatting with trailing comma removal
-
-### Phase 3C (Complete)
-- [x] Code actions (scaffolding, quick fixes)
-- [x] Find references - Find all usages of a type
-- [x] Rename symbol - Safely rename types and update references
-
-### Phase 4 (Complete)
-- [x] Default value validation - Type-checked defaults for all field types
-- [x] Logical types support - decimal, duration, and validation
 
 ## Contributing
 
