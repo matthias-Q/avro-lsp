@@ -1,6 +1,5 @@
 use async_lsp::lsp_types::{Position, Range};
 use nom::{
-    IResult,
     branch::alt,
     bytes::complete::{escaped, tag, take_while},
     character::complete::{char, multispace0, one_of},
@@ -8,6 +7,7 @@ use nom::{
     multi::separated_list0,
     number::complete::double,
     sequence::preceded,
+    IResult,
 };
 use nom_locate::LocatedSpan;
 use std::collections::HashMap;
@@ -221,28 +221,53 @@ pub fn parse_json(input: &str) -> Result<JsonValue, String> {
             let mut actual_position = error_position;
 
             // Try to find the actual location of missing comma by scanning the full input
-            // for patterns like `}\s*\n\s*{` or `]\s*\n\s*[` which indicate a missing comma
+            // Look for specific patterns that indicate missing commas:
+            // 1. } followed by { (missing comma between objects in array)
+            // 2. ] followed by [ (missing comma between arrays)
+            // 3. } followed by " (missing comma between object and next field key)
+            // 4. " followed by " (missing comma between strings or after string value)
 
-            // Use regex-like scanning to find missing comma patterns
             let bytes = input.as_bytes();
             let mut i = 0;
 
             while i < bytes.len() {
-                // Check if we have a closing delimiter (} or ])
-                if bytes[i] == b'}' || bytes[i] == b']' {
-                    let mut j = i + 1;
+                let current = bytes[i];
 
-                    // Skip whitespace after the closing delimiter
-                    while j < bytes.len() && (bytes[j] as char).is_whitespace() {
-                        j += 1;
-                    }
+                // Find the next non-whitespace character
+                let mut j = i + 1;
+                while j < bytes.len() && (bytes[j] as char).is_whitespace() {
+                    j += 1;
+                }
 
-                    // Check if next non-whitespace is an opening delimiter
-                    if j < bytes.len() && (bytes[j] == b'{' || bytes[j] == b'[') {
-                        // Found pattern like `}\s*{` or `]\s*[` - missing comma!
-                        // Report position right after the closing delimiter
-                        let pos_after_close = i + 1;
-                        actual_position = offset_to_position_in_str(input, pos_after_close);
+                if j < bytes.len() {
+                    let next = bytes[j];
+
+                    // Check for missing comma patterns
+                    let is_missing_comma = match (current, next) {
+                        // Object followed by object (in array)
+                        (b'}', b'{') => true,
+                        // Array followed by array
+                        (b']', b'[') => true,
+                        // Closing quote followed by opening quote (between strings or after value)
+                        (b'"', b'"') => {
+                            // Need to check if this is not inside a string
+                            // For now, assume it's a missing comma if we have this pattern
+                            // after skipping whitespace
+                            true
+                        }
+                        // Object closing followed by quote (missing comma before next key)
+                        (b'}', b'"') => {
+                            // Check if we're not at the end of an array
+                            // by looking if there's a reasonable amount of content after
+                            j + 1 < bytes.len()
+                        }
+                        _ => false,
+                    };
+
+                    if is_missing_comma {
+                        // Report position right after the first delimiter
+                        let pos_after = i + 1;
+                        actual_position = offset_to_position_in_str(input, pos_after);
                         break;
                     }
                 }
@@ -365,5 +390,44 @@ mod tests {
         let range = result.range();
         assert_eq!(range.start.line, 0);
         assert_eq!(range.start.character, 0);
+    }
+
+    #[test]
+    fn test_missing_comma_after_string_property() {
+        // Missing comma between "doc" property and "default" property (line 5 in editor, line 4 0-indexed)
+        let input = r#"{
+  "name": "username",
+  "type": "string",
+  "doc": "The user's username"
+  "default": "anonymous"
+}"#;
+        let err = parse_json(input).unwrap_err();
+        // Should detect error on line 4 (0-indexed)
+        assert!(
+            err.contains("line 4"),
+            "Error should be on line 4 (0-indexed): {}",
+            err
+        );
+        println!("✓ Correct error detected: {}", err);
+    }
+
+    #[test]
+    fn test_valid_closing_braces_not_flagged() {
+        // This should NOT be flagged as missing comma - } followed by ] is valid
+        let input = r#"{
+  "fields": [
+    {
+      "name": "id",
+      "type": "long"
+    }
+  ]
+}"#;
+        let result = parse_json(input);
+        // Should parse successfully
+        assert!(
+            result.is_ok(),
+            "Valid JSON should parse successfully: {:?}",
+            result.err()
+        );
     }
 }

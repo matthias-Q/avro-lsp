@@ -52,6 +52,11 @@
         "path": "./syntaxes/avsc.tmLanguage.json"
       }
     ],
+    "configurationDefaults": {
+      "[avsc]": {
+        "editor.defaultFormatter": "matthias-queitsch.avro-lsp"
+      }
+    },
     "configuration": {
       "type": "object",
       "title": "Avro LSP",

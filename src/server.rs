@@ -100,6 +100,19 @@ impl LanguageServer for AvroLanguageServer {
         })
     }
 
+    fn initialized(&mut self, _params: InitializedParams) -> Self::NotifyResult {
+        tracing::info!("Server initialized");
+        ControlFlow::Continue(())
+    }
+
+    fn did_change_configuration(
+        &mut self,
+        _params: DidChangeConfigurationParams,
+    ) -> Self::NotifyResult {
+        tracing::debug!("Configuration changed (no-op)");
+        ControlFlow::Continue(())
+    }
+
     fn did_open(&mut self, params: DidOpenTextDocumentParams) -> Self::NotifyResult {
         let uri = params.text_document.uri;
         let text = params.text_document.text;
