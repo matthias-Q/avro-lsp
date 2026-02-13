@@ -329,6 +329,10 @@ impl LanguageServer for AvroLanguageServer {
         let diagnostics = params.context.diagnostics;
 
         tracing::debug!("Code action request for {} at {:?}", uri, range);
+        tracing::debug!("Diagnostics in context: {}", diagnostics.len());
+        for diag in &diagnostics {
+            tracing::debug!("  Diagnostic: {}", diag.message);
+        }
 
         let state = self.state.clone();
 

@@ -553,42 +553,59 @@ pub fn get_quick_fixes_from_diagnostics(
     uri: &Url,
     diagnostics: &[Diagnostic],
 ) -> Vec<CodeAction> {
+    tracing::debug!(
+        "get_quick_fixes_from_diagnostics called with {} diagnostics",
+        diagnostics.len()
+    );
     let mut actions = Vec::new();
 
     for diagnostic in diagnostics {
+        tracing::debug!("Processing diagnostic: {}", diagnostic.message);
+
+        // Strip "Validation error: " prefix if present
+        let msg = diagnostic
+            .message
+            .strip_prefix("Validation error: ")
+            .unwrap_or(&diagnostic.message);
+
+        tracing::debug!("Stripped message: {}", msg);
+
         // Try to generate fixes based on the error message
-        if let Some(msg) = diagnostic.message.strip_prefix("Invalid name '") {
-            if let Some(name_end) = msg.find('\'') {
-                let invalid_name = &msg[..name_end];
+        if let Some(remainder) = msg.strip_prefix("Invalid name '") {
+            if let Some(name_end) = remainder.find('\'') {
+                let invalid_name = &remainder[..name_end];
+                tracing::debug!("Found invalid name: {}", invalid_name);
                 if let Some(fix) = create_fix_invalid_name(uri, schema, diagnostic, invalid_name) {
                     actions.push(fix);
                 }
             }
-        } else if let Some(msg) = diagnostic.message.strip_prefix("Invalid namespace '") {
-            if let Some(ns_end) = msg.find('\'') {
-                let invalid_namespace = &msg[..ns_end];
+        } else if let Some(remainder) = msg.strip_prefix("Invalid namespace '") {
+            if let Some(ns_end) = remainder.find('\'') {
+                let invalid_namespace = &remainder[..ns_end];
+                tracing::debug!("Found invalid namespace: {}", invalid_namespace);
                 if let Some(fix) =
                     create_fix_invalid_namespace(uri, schema, diagnostic, invalid_namespace)
                 {
                     actions.push(fix);
                 }
             }
-        } else if diagnostic.message.contains("logical type")
-            && diagnostic.message.contains("requires")
-        {
+        } else if msg.contains("logical type") && msg.contains("requires") {
             // e.g., "Invalid logical type 'uuid' for type int - requires string"
+            tracing::debug!("Found logical type error");
             if let Some(fix) = create_fix_logical_type(uri, schema, text, diagnostic) {
                 actions.push(fix);
             }
-        } else if let Some(msg) = diagnostic.message.strip_prefix("Duplicate symbol '") {
-            if let Some(symbol_end) = msg.find('\'') {
-                let duplicate_symbol = &msg[..symbol_end];
-                if let Some(fix) =
-                    create_fix_duplicate_symbol(uri, text, diagnostic, duplicate_symbol)
-                {
-                    actions.push(fix);
-                }
+        } else if let Some(remainder) = msg.strip_prefix("Duplicate symbol '")
+            && let Some(symbol_end) = remainder.find('\'')
+        {
+            let duplicate_symbol = &remainder[..symbol_end];
+            tracing::debug!("Found duplicate symbol: {}", duplicate_symbol);
+            if let Some(fix) = create_fix_duplicate_symbol(uri, text, diagnostic, duplicate_symbol)
+            {
+                actions.push(fix);
             }
+        } else {
+            tracing::debug!("No matching pattern for diagnostic: {}", msg);
         }
     }
 
@@ -861,9 +878,7 @@ fn fix_invalid_name(name: &str) -> String {
     if fixed.is_empty() || !regex.is_match(&fixed) {
         if fixed.is_empty() {
             fixed = "_".to_string();
-        } else if !fixed.chars().next().unwrap().is_ascii_alphabetic()
-            && !fixed.starts_with('_')
-        {
+        } else if !fixed.chars().next().unwrap().is_ascii_alphabetic() && !fixed.starts_with('_') {
             fixed = format!("_{}", fixed);
         }
     }
@@ -942,22 +957,22 @@ fn find_primitive_type_range(text: &str, diagnostic_range: Range) -> Option<Rang
             // Find the value after the colon
             if let Some(colon_pos) = line[type_pos..].find(':') {
                 let after_colon = &line[type_pos + colon_pos + 1..];
-                if let Some(quote_start) = after_colon.find('"') {
-                    if let Some(quote_end) = after_colon[quote_start + 1..].find('"') {
-                        let value_start = type_pos + colon_pos + 1 + quote_start;
-                        let value_end = value_start + quote_end + 2; // Include both quotes
+                if let Some(quote_start) = after_colon.find('"')
+                    && let Some(quote_end) = after_colon[quote_start + 1..].find('"')
+                {
+                    let value_start = type_pos + colon_pos + 1 + quote_start;
+                    let value_end = value_start + quote_end + 2; // Include both quotes
 
-                        return Some(Range {
-                            start: Position {
-                                line: line_num as u32,
-                                character: value_start as u32,
-                            },
-                            end: Position {
-                                line: line_num as u32,
-                                character: value_end as u32,
-                            },
-                        });
-                    }
+                    return Some(Range {
+                        start: Position {
+                            line: line_num as u32,
+                            character: value_start as u32,
+                        },
+                        end: Position {
+                            line: line_num as u32,
+                            character: value_end as u32,
+                        },
+                    });
                 }
             }
         }
@@ -1633,7 +1648,9 @@ mod tests {
         assert!(!quick_fixes.is_empty(), "Should have quick fixes");
 
         // Find the fix invalid name action
-        let fix = quick_fixes.iter().find(|a| a.title.contains("Fix invalid name"));
+        let fix = quick_fixes
+            .iter()
+            .find(|a| a.title.contains("Fix invalid name"));
 
         assert!(fix.is_some(), "Should have 'Fix invalid name' action");
         let action = fix.unwrap();
@@ -1691,9 +1708,7 @@ mod tests {
         assert!(!quick_fixes.is_empty(), "Should have quick fixes");
 
         // Should have at least one fix for the namespace
-        let fix = quick_fixes
-            .iter()
-            .find(|a| a.title.contains("namespace"));
+        let fix = quick_fixes.iter().find(|a| a.title.contains("namespace"));
 
         assert!(fix.is_some(), "Should have namespace fix action");
     }
@@ -1721,7 +1736,10 @@ mod tests {
         // Create a diagnostic for logical type error
         let diagnostic = Diagnostic {
             range: Range {
-                start: Position { line: 7, character: 8 },
+                start: Position {
+                    line: 7,
+                    character: 8,
+                },
                 end: Position {
                     line: 10,
                     character: 7,
@@ -1769,7 +1787,10 @@ mod tests {
         // Create a diagnostic for duplicate symbol
         let diagnostic = Diagnostic {
             range: Range {
-                start: Position { line: 3, character: 15 },
+                start: Position {
+                    line: 3,
+                    character: 15,
+                },
                 end: Position {
                     line: 3,
                     character: 38,
@@ -1812,10 +1833,73 @@ mod tests {
     }
 
     #[test]
+    fn test_end_to_end_invalid_name_flow() {
+        // This test simulates the EXACT flow that happens when editor triggers code action
+        let text = r#"{
+  "type": "record",
+  "name": "123Invalid",
+  "fields": [
+    {"name": "value", "type": "string"}
+  ]
+}"#;
+
+        // Step 1: Parse (what server does on didOpen)
+        let mut parser = AvroParser::new();
+        let schema = parser.parse(text).expect("Should parse");
+
+        // Step 2: Get diagnostics (what server does after parsing)
+        let diagnostics = crate::handlers::diagnostics::parse_and_validate(text);
+
+        eprintln!("\n=== DIAGNOSTICS (what server sends to editor) ===");
+        for (i, diag) in diagnostics.iter().enumerate() {
+            eprintln!("Diagnostic {}: '{}'", i, diag.message);
+            eprintln!("  Range: {:?}", diag.range);
+        }
+
+        assert!(!diagnostics.is_empty(), "Should have diagnostics");
+
+        // Step 3: Get code actions (what server does when editor requests code actions)
+        let uri = Url::parse("file:///test.avsc").unwrap();
+        let quick_fixes = get_quick_fixes_from_diagnostics(&schema, text, &uri, &diagnostics);
+
+        eprintln!("\n=== QUICK FIXES (what server should return) ===");
+        for (i, fix) in quick_fixes.iter().enumerate() {
+            eprintln!("Fix {}: '{}'", i, fix.title);
+        }
+
+        // THIS IS THE KEY TEST - if this fails, code actions won't work in editor
+        assert!(
+            !quick_fixes.is_empty(),
+            "Should generate quick fixes! If this fails, the string parsing is broken."
+        );
+
+        // Verify the fix is correct
+        let fix = &quick_fixes[0];
+        assert!(
+            fix.title.contains("123Invalid") && fix.title.contains("_123Invalid"),
+            "Fix should suggest renaming to _123Invalid, got: {}",
+            fix.title
+        );
+    }
+
+    #[test]
     fn test_fix_invalid_namespace_function() {
-        assert_eq!(fix_invalid_namespace("com.example.test"), "com.example.test");
+        // Valid namespace stays the same
+        assert_eq!(
+            fix_invalid_namespace("com.example.test"),
+            "com.example.test"
+        );
+        // Pure number segment is removed
         assert_eq!(fix_invalid_namespace("123.invalid"), "invalid");
-        assert_eq!(fix_invalid_namespace("valid.123invalid"), "valid");
-        assert_eq!(fix_invalid_namespace("com.test-dash.app"), "com.test_dash.app");
+        // Segment starting with number but containing letters is fixed
+        assert_eq!(
+            fix_invalid_namespace("valid.123invalid"),
+            "valid._123invalid"
+        );
+        // Dashes are replaced with underscores
+        assert_eq!(
+            fix_invalid_namespace("com.test-dash.app"),
+            "com.test_dash.app"
+        );
     }
 }

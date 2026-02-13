@@ -24,13 +24,10 @@ struct ServerStateInner {
 }
 
 struct Document {
-    #[allow(dead_code)]
     text: String,
     #[allow(dead_code)]
     version: i32,
-    #[allow(dead_code)]
     schema: Option<AvroSchema>,
-    #[allow(dead_code)]
     diagnostics: Vec<Diagnostic>,
 }
 
@@ -260,18 +257,16 @@ impl ServerState {
     pub async fn did_open(&self, uri: Url, text: String, version: i32) -> Vec<Diagnostic> {
         let mut state = self.inner.write().await;
 
+        // Always try to parse the schema, even if there are validation errors
+        // We need the schema AST for code actions!
+        let mut parser = AvroParser::new();
+        let schema = parser.parse(&text).ok();
+
         // Validate with workspace context for cross-file type checking
         let diagnostics = crate::handlers::diagnostics::parse_and_validate_with_workspace(
             &text,
             Some(&state.workspace),
         );
-
-        let schema = if diagnostics.is_empty() {
-            let mut parser = AvroParser::new();
-            parser.parse(&text).ok()
-        } else {
-            None
-        };
 
         // Update workspace with the new file
         if let Err(e) = state.workspace.update_file(uri.clone(), text.clone()) {
@@ -405,25 +400,61 @@ impl ServerState {
         &self,
         uri: &Url,
         range: Range,
-        diagnostics: Vec<Diagnostic>,
+        context_diagnostics: Vec<Diagnostic>,
     ) -> Option<Vec<async_lsp::lsp_types::CodeAction>> {
+        tracing::info!(
+            "get_code_actions called for {} with {} diagnostics in context",
+            uri,
+            context_diagnostics.len()
+        );
+
         let state = self.inner.read().await;
-        let doc = state.documents.get(uri)?;
-        let schema = doc.schema.as_ref()?;
+        let doc = state.documents.get(uri);
 
-        // Get refactoring code actions
+        if doc.is_none() {
+            tracing::warn!("Document not found for {}", uri);
+            return None;
+        }
+
+        let doc = doc.unwrap();
+
+        if doc.schema.is_none() {
+            tracing::warn!("Schema not parsed for {}", uri);
+            return None;
+        }
+
+        let schema = doc.schema.as_ref().unwrap();
+
+        // Use diagnostics from context if provided, otherwise use stored diagnostics
+        // Some editors don't pass diagnostics in the code action context
+        let diagnostics_to_use = if context_diagnostics.is_empty() {
+            tracing::info!(
+                "No diagnostics in context, using {} stored diagnostics",
+                doc.diagnostics.len()
+            );
+            &doc.diagnostics
+        } else {
+            &context_diagnostics
+        };
+
+        // Get refactoring code actions (position-based)
         let mut actions = crate::handlers::code_actions::get_code_actions(schema, uri, range);
+        tracing::info!("Refactoring actions: {}", actions.len());
 
-        // Get quick fix code actions from diagnostics
+        // Get quick fix code actions from diagnostics (diagnostic-based)
         let quick_fixes = crate::handlers::code_actions::get_quick_fixes_from_diagnostics(
             schema,
             &doc.text,
             uri,
-            &diagnostics,
+            diagnostics_to_use,
         );
+        tracing::info!("Quick fix actions: {}", quick_fixes.len());
         actions.extend(quick_fixes);
 
+        tracing::info!("Total actions: {}", actions.len());
+
         if actions.is_empty() {
+            tracing::warn!("No actions generated, returning None");
             None
         } else {
             Some(actions)

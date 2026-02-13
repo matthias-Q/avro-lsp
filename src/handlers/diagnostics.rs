@@ -178,11 +178,11 @@ fn find_error_position_in_ast(error: &SchemaError, schema: &AvroSchema) -> Range
                     AvroType::Record(record) => {
                         if record.namespace.as_ref() == Some(namespace) {
                             tracing::debug!(
-                                "Found record with invalid namespace at {:?}",
-                                record.range
+                                "Found record with invalid namespace, name_range: {:?}",
+                                record.name_range
                             );
-                            // Use the record's range as best approximation
-                            return record.range;
+                            // Use name_range as best approximation (namespace field isn't tracked separately yet)
+                            return record.name_range.or(record.range);
                         }
                         // Recurse into fields
                         for field in &record.fields {
@@ -195,20 +195,20 @@ fn find_error_position_in_ast(error: &SchemaError, schema: &AvroSchema) -> Range
                     AvroType::Enum(enum_schema) => {
                         if enum_schema.namespace.as_ref() == Some(namespace) {
                             tracing::debug!(
-                                "Found enum with invalid namespace at {:?}",
-                                enum_schema.range
+                                "Found enum with invalid namespace, name_range: {:?}",
+                                enum_schema.name_range
                             );
-                            return enum_schema.range;
+                            return enum_schema.name_range.or(enum_schema.range);
                         }
                         None
                     }
                     AvroType::Fixed(fixed) => {
                         if fixed.namespace.as_ref() == Some(namespace) {
                             tracing::debug!(
-                                "Found fixed with invalid namespace at {:?}",
-                                fixed.range
+                                "Found fixed with invalid namespace, name_range: {:?}",
+                                fixed.name_range
                             );
-                            return fixed.range;
+                            return fixed.name_range.or(fixed.range);
                         }
                         None
                     }
@@ -266,24 +266,24 @@ fn find_error_position_in_ast(error: &SchemaError, schema: &AvroSchema) -> Range
                 // Handle common patterns like field validation errors, decimal errors, etc.
 
                 // For "Record must have at least one field"
-                if msg.contains("Record must have at least one field") {
-                    if let AvroType::Record(record) = avro_type {
-                        return record.range;
-                    }
+                if msg.contains("Record must have at least one field")
+                    && let AvroType::Record(record) = avro_type
+                {
+                    return record.range;
                 }
 
                 // For "Enum must have at least one symbol"
-                if msg.contains("Enum must have at least one symbol") {
-                    if let AvroType::Enum(enum_schema) = avro_type {
-                        return enum_schema.range;
-                    }
+                if msg.contains("Enum must have at least one symbol")
+                    && let AvroType::Enum(enum_schema) = avro_type
+                {
+                    return enum_schema.range;
                 }
 
                 // For "Fixed size must be greater than 0"
-                if msg.contains("Fixed size must be greater than 0") {
-                    if let AvroType::Fixed(fixed) = avro_type {
-                        return fixed.range;
-                    }
+                if msg.contains("Fixed size must be greater than 0")
+                    && let AvroType::Fixed(fixed) = avro_type
+                {
+                    return fixed.range;
                 }
 
                 // For decimal/duration logical type errors
@@ -299,22 +299,18 @@ fn find_error_position_in_ast(error: &SchemaError, schema: &AvroSchema) -> Range
                     }
                 }
 
-                if msg.contains("Duration") {
-                    if let AvroType::Fixed(fixed) = avro_type {
-                        if fixed.logical_type == Some("duration".to_string()) {
-                            return fixed.range;
-                        }
-                    }
+                if msg.contains("Duration")
+                    && let AvroType::Fixed(fixed) = avro_type
+                    && fixed.logical_type == Some("duration".to_string())
+                {
+                    return fixed.range;
                 }
 
                 // For "Invalid logical type" errors
-                if msg.contains("Invalid logical type") {
-                    match avro_type {
-                        AvroType::PrimitiveObject(prim) => {
-                            return prim.range;
-                        }
-                        _ => {}
-                    }
+                if msg.contains("Invalid logical type")
+                    && let AvroType::PrimitiveObject(prim) = avro_type
+                {
+                    return prim.range;
                 }
 
                 // Recurse for nested structures
@@ -706,6 +702,11 @@ mod tests {
             !diagnostics.is_empty(),
             "Should have diagnostics for invalid namespace"
         );
+
+        eprintln!("Diagnostics: {}", diagnostics.len());
+        for (i, d) in diagnostics.iter().enumerate() {
+            eprintln!("  {}: {} at {:?}", i, d.message, d.range);
+        }
 
         let diag = &diagnostics[0];
 
