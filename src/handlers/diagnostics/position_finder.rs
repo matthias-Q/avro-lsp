@@ -5,7 +5,11 @@ use crate::schema::{AvroSchema, AvroType, SchemaError};
 use super::text_search::find_nested_union_range;
 
 /// Find the position of a validation error using AST
-pub(super) fn find_error_position_in_ast(error: &SchemaError, schema: &AvroSchema, text: &str) -> Range {
+pub(super) fn find_error_position_in_ast(
+    error: &SchemaError,
+    schema: &AvroSchema,
+    text: &str,
+) -> Range {
     fn search_type(avro_type: &AvroType, error: &SchemaError, text: &str) -> Option<Range> {
         match error {
             SchemaError::InvalidName { name, range, .. } => {
@@ -220,9 +224,11 @@ pub(super) fn find_error_position_in_ast(error: &SchemaError, schema: &AvroSchem
                 match avro_type {
                     AvroType::Record(record) => {
                         if let Some(range) = record.range
-                            && msg.contains("field") && record.fields.is_empty() {
-                                return Some(range);
-                            }
+                            && msg.contains("field")
+                            && record.fields.is_empty()
+                        {
+                            return Some(range);
+                        }
                         for field in &record.fields {
                             if let Some(range) = search_type(&field.field_type, error, text) {
                                 return Some(range);
@@ -296,23 +302,24 @@ pub(super) fn find_error_position_in_ast(error: &SchemaError, schema: &AvroSchem
                     AvroType::Record(record) => {
                         for field in &record.fields {
                             if let AvroType::Union(types) = &*field.field_type
-                                && types.iter().any(|t| matches!(t, AvroType::Union(_))) {
-                                    if let Some(field_range) = field.range
-                                        && let Some(nested_range) =
-                                            find_nested_union_range(text, field_range)
-                                    {
-                                        tracing::debug!(
-                                            "Found nested union at precise range: {:?}",
-                                            nested_range
-                                        );
-                                        return Some(nested_range);
-                                    }
+                                && types.iter().any(|t| matches!(t, AvroType::Union(_)))
+                            {
+                                if let Some(field_range) = field.range
+                                    && let Some(nested_range) =
+                                        find_nested_union_range(text, field_range)
+                                {
                                     tracing::debug!(
-                                        "Found nested union in field, returning field range: {:?}",
-                                        field.range
+                                        "Found nested union at precise range: {:?}",
+                                        nested_range
                                     );
-                                    return field.range;
+                                    return Some(nested_range);
                                 }
+                                tracing::debug!(
+                                    "Found nested union in field, returning field range: {:?}",
+                                    field.range
+                                );
+                                return field.range;
+                            }
                             if let Some(range) = search_type(&field.field_type, error, text) {
                                 return field.range.or(Some(range));
                             }

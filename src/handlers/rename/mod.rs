@@ -1,9 +1,9 @@
 use std::collections::HashMap;
 
+use async_lsp::ResponseError;
 use async_lsp::lsp_types::{
     Location, Position, PrepareRenameResponse, TextEdit, Url, WorkspaceEdit,
 };
-use async_lsp::ResponseError;
 
 use crate::schema::AvroSchema;
 use crate::workspace::Workspace;
@@ -62,8 +62,12 @@ pub fn rename_with_workspace(
         | node_matcher::SymbolType::TypeReference => {
             validation::check_type_name_conflict(schema, &rename_info.old_name, new_name)?;
 
-            let current_file_edits =
-                local_rename::collect_type_rename_edits(schema, text, &rename_info.old_name, new_name);
+            let current_file_edits = local_rename::collect_type_rename_edits(
+                schema,
+                text,
+                &rename_info.old_name,
+                new_name,
+            );
             if !current_file_edits.is_empty() {
                 changes.insert(uri.clone(), current_file_edits);
             }

@@ -1,8 +1,8 @@
-use async_lsp::lsp_types::{Position, PrepareRenameResponse, Range};
 use async_lsp::ResponseError;
+use async_lsp::lsp_types::{Position, PrepareRenameResponse, Range};
 
 use crate::schema::{AvroSchema, AvroType, Field};
-use crate::state::{find_node_at_position, position_in_range, AstNode};
+use crate::state::{AstNode, find_node_at_position, position_in_range};
 
 #[derive(Debug, Clone)]
 pub enum SymbolType {
@@ -118,10 +118,7 @@ pub fn extract_rename_info(
     }
 }
 
-pub fn extract_type_name_for_references(
-    schema: &AvroSchema,
-    position: Position,
-) -> Option<&str> {
+pub fn extract_type_name_for_references(schema: &AvroSchema, position: Position) -> Option<&str> {
     let node = find_node_at_position(schema, position)?;
 
     match node {

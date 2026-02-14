@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
-use async_lsp::lsp_types::{Range, TextEdit, Url, WorkspaceEdit};
 use async_lsp::ResponseError;
+use async_lsp::lsp_types::{Range, TextEdit, Url, WorkspaceEdit};
 
 use crate::schema::{AvroSchema, AvroType};
 
@@ -36,7 +36,10 @@ pub fn rename_in_file(
                 change_annotations: None,
             }))
         }
-        SymbolType::RecordType | SymbolType::EnumType | SymbolType::FixedType | SymbolType::TypeReference => {
+        SymbolType::RecordType
+        | SymbolType::EnumType
+        | SymbolType::FixedType
+        | SymbolType::TypeReference => {
             validation::check_type_name_conflict(schema, &rename_info.old_name, new_name)?;
 
             let edits = collect_type_rename_edits(schema, text, &rename_info.old_name, new_name);

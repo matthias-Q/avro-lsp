@@ -94,7 +94,11 @@ pub(super) fn extract_error_position_with_context(error_msg: &str, text: &str) -
 }
 
 /// Improve error message with correct position and helpful hints
-pub(super) fn improve_error_message(original_msg: &str, pos: &Position, was_adjusted: bool) -> String {
+pub(super) fn improve_error_message(
+    original_msg: &str,
+    pos: &Position,
+    was_adjusted: bool,
+) -> String {
     let base_msg = if let Some(colon_pos) = original_msg.find(": ") {
         &original_msg[colon_pos + 2..]
     } else {

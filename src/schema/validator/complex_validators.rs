@@ -175,9 +175,7 @@ pub fn validate_type_with_resolver(
 
     match avro_type {
         AvroType::Primitive(_) => Ok(()),
-        AvroType::PrimitiveObject(prim) => {
-            validate_primitive_with_logical_type(name_regex, prim)
-        }
+        AvroType::PrimitiveObject(prim) => validate_primitive_with_logical_type(name_regex, prim),
         AvroType::Record(record) => {
             validate_record_with_resolver(name_regex, record, named_types, resolver)
         }

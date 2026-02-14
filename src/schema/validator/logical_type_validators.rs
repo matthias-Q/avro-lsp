@@ -66,8 +66,7 @@ pub fn validate_primitive_with_logical_type(
             (PrimitiveType::Bytes, "decimal") => {
                 if primitive.precision.is_none() {
                     return Err(SchemaError::Custom {
-                        message: "Decimal logical type requires 'precision' attribute"
-                            .to_string(),
+                        message: "Decimal logical type requires 'precision' attribute".to_string(),
                         range: primitive.range,
                     });
                 }
