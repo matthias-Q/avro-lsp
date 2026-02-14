@@ -79,6 +79,7 @@ fn format_type_hint(avro_type: &AvroType) -> String {
         AvroType::Record(record) => record.name.clone(),
         AvroType::Enum(enum_schema) => enum_schema.name.clone(),
         AvroType::Fixed(fixed) => fixed.name.clone(),
+        AvroType::Invalid(invalid) => format!("{} (invalid)", invalid.type_name),
     }
 }
 
@@ -322,6 +323,7 @@ mod tests {
         let schema = AvroSchema {
             root: AvroType::Record(record),
             named_types: HashMap::new(),
+            parse_errors: Vec::new(),
         };
 
         let hints = generate_inlay_hints(&schema, "");

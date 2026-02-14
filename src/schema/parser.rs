@@ -6,12 +6,14 @@ use super::types::*;
 
 pub struct AvroParser {
     named_types: HashMap<String, AvroType>,
+    errors: Vec<SchemaError>,
 }
 
 impl AvroParser {
     pub fn new() -> Self {
         Self {
             named_types: HashMap::new(),
+            errors: Vec::new(),
         }
     }
 
@@ -28,6 +30,7 @@ impl AvroParser {
         Ok(AvroSchema {
             root,
             named_types: self.named_types.clone(),
+            parse_errors: self.errors.clone(),
         })
     }
 
@@ -37,8 +40,24 @@ impl AvroParser {
             JsonValue::String(s, range) => {
                 if let Some(primitive) = PrimitiveType::parse(s) {
                     Ok(AvroType::Primitive(primitive))
+                } else if s.chars().all(|c| c.is_ascii_lowercase() || c == '_') {
+                    // Looks like a primitive type but isn't valid - use error recovery
+                    let error = SchemaError::InvalidPrimitiveType {
+                        type_name: s.clone(),
+                        range: Some(*range),
+                        suggested: suggest_primitive_type(s),
+                    };
+
+                    // Collect error for later reporting
+                    self.errors.push(error);
+
+                    // Return Invalid type node to continue parsing
+                    Ok(AvroType::Invalid(InvalidTypeSchema {
+                        type_name: s.clone(),
+                        range: Some(*range),
+                    }))
                 } else {
-                    // Must be a type reference
+                    // Must be a type reference (contains dots, uppercase, etc.)
                     Ok(AvroType::TypeRef(TypeRefSchema {
                         name: s.clone(),
                         range: Some(*range),
@@ -77,11 +96,23 @@ impl AvroParser {
                             Ok(AvroType::Primitive(PrimitiveType::parse(prim).unwrap()))
                         }
                     }
-                    _ => Err(SchemaError::InvalidPrimitiveType {
-                        type_name: type_name.to_string(),
-                        range: obj.get("type").map(|v| v.range()),
-                        suggested: suggest_primitive_type(type_name),
-                    }),
+                    _ => {
+                        // Invalid primitive type - use error recovery instead of failing
+                        let error = SchemaError::InvalidPrimitiveType {
+                            type_name: type_name.to_string(),
+                            range: obj.get("type").map(|v| v.range()),
+                            suggested: suggest_primitive_type(type_name),
+                        };
+
+                        // Collect error for later reporting
+                        self.errors.push(error);
+
+                        // Return Invalid type node to continue parsing
+                        Ok(AvroType::Invalid(InvalidTypeSchema {
+                            type_name: type_name.to_string(),
+                            range: obj.get("type").map(|v| v.range()),
+                        }))
+                    }
                 }
             }
 
@@ -380,6 +411,8 @@ impl AvroParser {
             precision,
             scale,
             range: Some(range),
+            name_range: None,
+            namespace_range: None,
         }))
     }
 
@@ -590,5 +623,126 @@ mod tests {
         } else {
             panic!("Expected record type");
         }
+    }
+
+    #[test]
+    fn test_error_recovery_invalid_primitive() {
+        let mut parser = AvroParser::new();
+        let json = r#"{
+            "type": "record",
+            "name": "TestRecord",
+            "fields": [
+                {"name": "flag", "type": "boolena"}
+            ]
+        }"#;
+        let schema = parser.parse(json).unwrap();
+
+        // Schema should parse successfully despite invalid type
+        assert!(!schema.parse_errors.is_empty(), "Expected parse errors");
+        assert_eq!(
+            schema.parse_errors.len(),
+            1,
+            "Expected exactly 1 parse error"
+        );
+
+        // Check the error details
+        match &schema.parse_errors[0] {
+            SchemaError::InvalidPrimitiveType {
+                type_name,
+                suggested,
+                ..
+            } => {
+                assert_eq!(type_name, "boolena");
+                assert_eq!(suggested.as_deref(), Some("boolean"));
+            }
+            _ => panic!(
+                "Expected InvalidPrimitiveType error, got: {:?}",
+                schema.parse_errors[0]
+            ),
+        }
+
+        // Check that the record structure is preserved
+        if let AvroType::Record(record) = &schema.root {
+            assert_eq!(record.name, "TestRecord");
+            assert_eq!(record.fields.len(), 1);
+            assert_eq!(record.fields[0].name, "flag");
+
+            // Check that the invalid type is represented as Invalid
+            if let AvroType::Invalid(invalid) = &*record.fields[0].field_type {
+                assert_eq!(invalid.type_name, "boolena");
+                assert!(invalid.range.is_some());
+            } else {
+                panic!(
+                    "Expected Invalid type for field, got: {:?}",
+                    record.fields[0].field_type
+                );
+            }
+        } else {
+            panic!("Expected record type");
+        }
+    }
+
+    #[test]
+    fn test_error_recovery_multiple_invalid_types() {
+        let mut parser = AvroParser::new();
+        let json = r#"{
+            "type": "record",
+            "name": "TestRecord",
+            "fields": [
+                {"name": "field1", "type": "boolena"},
+                {"name": "field2", "type": "integr"},
+                {"name": "field3", "type": "string"}
+            ]
+        }"#;
+        let schema = parser.parse(json).unwrap();
+
+        // Should have 2 errors (boolena and integr)
+        assert_eq!(schema.parse_errors.len(), 2, "Expected 2 parse errors");
+
+        // Check that valid field is still parsed correctly
+        if let AvroType::Record(record) = &schema.root {
+            assert_eq!(record.fields.len(), 3);
+
+            // First field should be Invalid
+            assert!(matches!(
+                &*record.fields[0].field_type,
+                AvroType::Invalid(_)
+            ));
+
+            // Second field should be Invalid
+            assert!(matches!(
+                &*record.fields[1].field_type,
+                AvroType::Invalid(_)
+            ));
+
+            // Third field should be valid String
+            assert!(matches!(
+                &*record.fields[2].field_type,
+                AvroType::Primitive(PrimitiveType::String)
+            ));
+        } else {
+            panic!("Expected record type");
+        }
+    }
+
+    #[test]
+    fn test_no_errors_for_valid_schema() {
+        let mut parser = AvroParser::new();
+        let json = r#"{
+            "type": "record",
+            "name": "ValidRecord",
+            "fields": [
+                {"name": "name", "type": "string"},
+                {"name": "age", "type": "int"},
+                {"name": "active", "type": "boolean"}
+            ]
+        }"#;
+        let schema = parser.parse(json).unwrap();
+
+        // Valid schema should have no parse errors
+        assert!(
+            schema.parse_errors.is_empty(),
+            "Expected no parse errors for valid schema"
+        );
     }
 }

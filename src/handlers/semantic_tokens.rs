@@ -562,4 +562,163 @@ mod tests {
         // Should have tokens for both "null" and "string" in the inline union
         assert!(!tokens.is_empty(), "Should have semantic tokens");
     }
+
+    #[test]
+    fn test_semantic_tokens_with_invalid_type() {
+        let text = r#"{
+  "type": "record",
+  "name": "TestRecord",
+  "fields": [
+    {"name": "flag", "type": "boolena"}
+  ]
+}"#;
+
+        let mut parser = AvroParser::new();
+        let schema = parser
+            .parse(text)
+            .expect("Should parse despite invalid type");
+
+        // Schema should have parse errors
+        assert!(!schema.parse_errors.is_empty(), "Expected parse errors");
+
+        let tokens = build_semantic_tokens(&schema, text.to_string());
+
+        // Should still have tokens for valid parts
+        assert!(
+            !tokens.is_empty(),
+            "Should have semantic tokens for valid parts"
+        );
+
+        // Convert delta-encoded tokens back to absolute positions
+        let mut abs_tokens = Vec::new();
+        let mut current_line = 0u32;
+        let mut current_char = 0u32;
+
+        for token in &tokens {
+            current_line += token.delta_line;
+            if token.delta_line > 0 {
+                current_char = token.delta_start;
+            } else {
+                current_char += token.delta_start;
+            }
+            abs_tokens.push((current_line, current_char, token.length, token.token_type));
+        }
+
+        // Check that "record", "TestRecord", "fields", "flag" are tokenized
+        let lines: Vec<&str> = text.lines().collect();
+
+        // Find line with "type": "record"
+        let record_line = lines.iter().position(|l| l.contains("\"record\"")).unwrap() as u32;
+        let has_record_token = abs_tokens.iter().any(|(line, _, length, _)| {
+            *line == record_line && *length == 6 // "record" is 6 chars
+        });
+        assert!(has_record_token, "Should have token for 'record' keyword");
+
+        // Find line with "name": "TestRecord"
+        let name_line = lines
+            .iter()
+            .position(|l| l.contains("\"TestRecord\""))
+            .unwrap() as u32;
+        let has_name_token = abs_tokens.iter().any(|(line, _, length, _)| {
+            *line == name_line && *length == 10 // "TestRecord" is 10 chars
+        });
+        assert!(has_name_token, "Should have token for 'TestRecord' name");
+
+        // Verify that "boolena" is NOT tokenized (it's invalid)
+        let invalid_line = lines
+            .iter()
+            .position(|l| l.contains("\"boolena\""))
+            .unwrap() as u32;
+        let has_invalid_token = abs_tokens.iter().any(|(line, _, length, _)| {
+            *line == invalid_line && *length == 7 // "boolena" is 7 chars
+        });
+        assert!(
+            !has_invalid_token,
+            "Should NOT have token for invalid type 'boolena'"
+        );
+    }
+
+    #[test]
+    fn test_semantic_tokens_with_multiple_invalid_types() {
+        let text = r#"{
+  "type": "record",
+  "name": "TestRecord",
+  "fields": [
+    {"name": "field1", "type": "boolena"},
+    {"name": "field2", "type": "integr"},
+    {"name": "field3", "type": "string"}
+  ]
+}"#;
+
+        let mut parser = AvroParser::new();
+        let schema = parser
+            .parse(text)
+            .expect("Should parse despite invalid types");
+
+        // Should have 2 parse errors
+        assert_eq!(schema.parse_errors.len(), 2, "Expected 2 parse errors");
+
+        let tokens = build_semantic_tokens(&schema, text.to_string());
+
+        // Should still have tokens for valid parts
+        assert!(
+            !tokens.is_empty(),
+            "Should have semantic tokens for valid parts"
+        );
+
+        // Convert delta-encoded tokens
+        let mut abs_tokens = Vec::new();
+        let mut current_line = 0u32;
+        let mut current_char = 0u32;
+
+        for token in &tokens {
+            current_line += token.delta_line;
+            if token.delta_line > 0 {
+                current_char = token.delta_start;
+            } else {
+                current_char += token.delta_start;
+            }
+            abs_tokens.push((current_line, current_char, token.length, token.token_type));
+        }
+
+        let lines: Vec<&str> = text.lines().collect();
+
+        // Verify valid "string" type IS tokenized
+        let string_line = lines.iter().position(|l| l.contains("\"string\"")).unwrap() as u32;
+        let string_char_pos = lines[string_line as usize].find("\"string\"").unwrap() as u32 + 1; // +1 to skip opening quote
+        let has_string_token = abs_tokens.iter().any(|(line, char, length, _)| {
+            *line == string_line && *char == string_char_pos && *length == 6
+        });
+        assert!(
+            has_string_token,
+            "Should have token for valid 'string' type at line {}, char {}",
+            string_line, string_char_pos
+        );
+
+        // Verify invalid types are NOT tokenized
+        let boolena_line = lines
+            .iter()
+            .position(|l| l.contains("\"boolena\""))
+            .unwrap() as u32;
+        let boolena_char_pos = lines[boolena_line as usize].find("\"boolena\"").unwrap() as u32 + 1;
+        let has_boolena_token = abs_tokens.iter().any(|(line, char, length, _)| {
+            *line == boolena_line && *char == boolena_char_pos && *length == 7
+        });
+        assert!(
+            !has_boolena_token,
+            "Should NOT have token for invalid 'boolena' at line {}, char {}",
+            boolena_line, boolena_char_pos
+        );
+
+        let integr_line = lines.iter().position(|l| l.contains("\"integr\"")).unwrap() as u32;
+        let integr_char_pos = lines[integr_line as usize].find("\"integr\"").unwrap() as u32 + 1;
+        let has_integr_token = abs_tokens.iter().any(|(line, char, length, _)| {
+            *line == integr_line && *char == integr_char_pos && *length == 6
+        });
+        assert!(
+            !has_integr_token,
+            "Should NOT have token for invalid 'integr' at line {}, char {}",
+            integr_line, integr_char_pos
+        );
+    }
 }

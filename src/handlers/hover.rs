@@ -176,6 +176,9 @@ fn format_type_info(avro_type: &AvroType) -> String {
         AvroType::TypeRef(type_ref) => {
             format!("**Type Reference**: `{}`", type_ref.name)
         }
+        AvroType::Invalid(invalid) => {
+            format!("**Invalid Type**: `{}`", invalid.type_name)
+        }
     }
 }
 
@@ -201,6 +204,7 @@ pub fn format_type_name(avro_type: &AvroType) -> String {
             format!("[{}]", names.join(", "))
         }
         AvroType::TypeRef(type_ref) => format!("`{}`", type_ref.name),
+        AvroType::Invalid(invalid) => format!("`{} (invalid)`", invalid.type_name),
     }
 }
 

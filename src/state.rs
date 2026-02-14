@@ -149,8 +149,11 @@ fn find_node_in_type<'a>(
             }
             None
         }
-        // Primitives, PrimitiveObjects, and TypeRefs don't have position info
-        AvroType::Primitive(_) | AvroType::PrimitiveObject(_) | AvroType::TypeRef(_) => None,
+        // Primitives, PrimitiveObjects, TypeRefs, and Invalid types don't have position info
+        AvroType::Primitive(_)
+        | AvroType::PrimitiveObject(_)
+        | AvroType::TypeRef(_)
+        | AvroType::Invalid(_) => None,
     }
 }
 
@@ -257,10 +260,21 @@ impl ServerState {
     pub async fn did_open(&self, uri: Url, text: String, version: i32) -> Vec<Diagnostic> {
         let mut state = self.inner.write().await;
 
-        // Always try to parse the schema, even if there are validation errors
-        // We need the schema AST for code actions!
+        // Parse the schema with error recovery
+        // Even if there are validation errors during parsing, we still get a schema
+        // with error nodes (AvroType::Invalid) and errors collected in parse_errors
         let mut parser = AvroParser::new();
-        let schema = parser.parse(&text).ok();
+        let parse_result = parser.parse(&text);
+
+        #[allow(clippy::manual_ok_err)]
+        let schema = match parse_result {
+            Ok(schema) => Some(schema),
+            Err(_) => {
+                // Complete parse failure (invalid JSON), no schema at all
+                // This only happens for JSON syntax errors, not Avro validation errors
+                None
+            }
+        };
 
         // Validate with workspace context for cross-file type checking
         let diagnostics = crate::handlers::diagnostics::parse_and_validate_with_workspace(

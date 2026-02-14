@@ -2,7 +2,7 @@ use async_lsp::lsp_types::Range;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
-#[derive(Error, Debug, Clone, Serialize, Deserialize)]
+#[derive(Error, Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum SchemaError {
     #[error("Invalid JSON: {message}")]
     InvalidJson { message: String },

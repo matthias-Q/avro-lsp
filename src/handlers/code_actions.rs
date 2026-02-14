@@ -3336,10 +3336,15 @@ mod tests {
 
         let uri = Url::parse("file:///test.avsc").unwrap();
 
-        // Step 1: Try to parse - this will fail
+        // Step 1: Parse with error recovery - should succeed with parse_errors
         let mut parser = crate::schema::AvroParser::new();
         let parse_result = parser.parse(schema_text);
-        assert!(parse_result.is_err(), "Schema should fail to parse");
+        assert!(
+            parse_result.is_ok(),
+            "Schema should parse with error recovery"
+        );
+        let schema = parse_result.unwrap();
+        assert!(!schema.parse_errors.is_empty(), "Should have parse errors");
 
         // Step 2: Get diagnostics (which includes structured error data)
         let diagnostics =

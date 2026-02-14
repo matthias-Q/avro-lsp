@@ -128,6 +128,56 @@ pub fn parse_and_validate_with_workspace(
         }
     };
 
+    // Check for parse errors that were collected during error recovery
+    for parse_error in &schema.parse_errors {
+        let position_range = match parse_error {
+            SchemaError::InvalidPrimitiveType { range: Some(r), .. } => *r,
+            _ => Range {
+                start: Position {
+                    line: 0,
+                    character: 0,
+                },
+                end: Position {
+                    line: 0,
+                    character: 1,
+                },
+            },
+        };
+
+        let error_msg = match parse_error {
+            SchemaError::InvalidPrimitiveType {
+                type_name,
+                suggested,
+                ..
+            } => {
+                if let Some(suggestion) = suggested {
+                    format!(
+                        "Invalid primitive type '{}'. Did you mean '{}'?",
+                        type_name, suggestion
+                    )
+                } else {
+                    format!("Invalid primitive type '{}'", type_name)
+                }
+            }
+            _ => parse_error.to_string(),
+        };
+
+        // Serialize the SchemaError to JSON for the data field (for code actions)
+        let error_data = serde_json::to_value(parse_error).ok();
+
+        diagnostics.push(Diagnostic {
+            range: position_range,
+            severity: Some(DiagnosticSeverity::ERROR),
+            code: None,
+            code_description: None,
+            source: Some("avro-lsp".to_string()),
+            message: error_msg,
+            related_information: None,
+            tags: None,
+            data: error_data,
+        });
+    }
+
     // Try to validate - use workspace if provided for cross-file type checking
     let validator = AvroValidator::new();
     let validation_result = if let Some(ws) = workspace {
@@ -553,6 +603,7 @@ fn find_error_position_in_ast(error: &SchemaError, schema: &AvroSchema) -> Range
                             AvroType::Map(_) => "map".to_string(),
                             AvroType::Union(_) => "union".to_string(),
                             AvroType::TypeRef(type_ref) => format!("ref:{}", type_ref.name),
+                            AvroType::Invalid(inv) => format!("invalid:{}", inv.type_name),
                         };
                         if !signatures.insert(sig) {
                             return true; // Found duplicate

@@ -85,6 +85,11 @@ impl AvroValidator {
             AvroType::TypeRef(type_ref) => {
                 self.validate_type_reference_with_resolver(&type_ref.name, named_types, resolver)
             }
+            AvroType::Invalid(_) => {
+                // Invalid types are already marked as errors during parsing
+                // Skip validation as the error is already collected
+                Ok(())
+            }
         }
     }
 
@@ -650,6 +655,10 @@ impl AvroValidator {
                 }
                 // If type not found, it will be caught by type reference validation
             }
+            AvroType::Invalid(_) => {
+                // Invalid types are already marked as errors during parsing
+                // Skip default value validation as the type itself is invalid
+            }
         }
 
         Ok(())
@@ -667,6 +676,7 @@ impl AvroValidator {
             AvroType::Map(_) => "map".to_string(),
             AvroType::Union(_) => "union".to_string(),
             AvroType::TypeRef(type_ref) => format!("ref:{}", type_ref.name),
+            AvroType::Invalid(invalid) => format!("invalid:{}", invalid.type_name),
         }
     }
 }

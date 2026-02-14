@@ -7,6 +7,8 @@ use std::collections::HashMap;
 pub struct AvroSchema {
     pub root: AvroType,
     pub named_types: HashMap<String, AvroType>,
+    /// Errors collected during parsing (for error recovery)
+    pub parse_errors: Vec<super::error::SchemaError>,
 }
 
 /// Represents an Avro type
@@ -23,6 +25,9 @@ pub enum AvroType {
     Fixed(FixedSchema),
     /// Reference to a named type by string
     TypeRef(TypeRefSchema),
+    /// Invalid type encountered during parsing (used for error recovery)
+    #[serde(skip)]
+    Invalid(InvalidTypeSchema),
 }
 
 /// A reference to a named type
@@ -80,6 +85,21 @@ pub struct PrimitiveSchema {
     pub scale: Option<usize>,
 
     // Position tracking (not serialized)
+    #[serde(skip)]
+    pub range: Option<Range>,
+    #[serde(skip)]
+    pub name_range: Option<Range>,
+    #[serde(skip)]
+    pub namespace_range: Option<Range>,
+}
+
+/// Represents an invalid type that failed validation during parsing
+/// Used for error recovery to allow partial AST building
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct InvalidTypeSchema {
+    /// The invalid type name that was encountered
+    pub type_name: String,
+    /// Position information for the invalid type
     #[serde(skip)]
     pub range: Option<Range>,
 }
