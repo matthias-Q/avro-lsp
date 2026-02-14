@@ -23,6 +23,11 @@ nom_locate = "4.2"
 [dev-dependencies]
 pretty_assertions = "1.0"
 tempfile = "3.0"
+criterion = { version = "0.5", features = ["html_reports"] }
+
+[[bench]]
+name = "parser_bench"
+harness = false
 
 # [profile.release]
 # strip = true
