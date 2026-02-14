@@ -2,6 +2,28 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.1.8] - 2026-02-14
+
+### Features
+
+- Parser with recovery
+- Add parser benchmark
+
+### Bug Fixes
+
+- Code_action flatten unions
+
+### Refactor
+
+- Code_Actions builder pattern
+- *(code_actions)* Into submodules
+- Rename and validator
+
+### Miscellaneous Tasks
+
+- Fix release
+- *(release)* Release version v0.1.8
+
 ## [0.1.7] - 2026-02-13
 
 ### Miscellaneous Tasks
