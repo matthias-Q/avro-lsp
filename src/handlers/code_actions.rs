@@ -1,9 +1,100 @@
-use async_lsp::lsp_types::{CodeAction, Diagnostic, Position, Range, Url};
+use std::collections::HashMap;
+
+use async_lsp::lsp_types::{
+    CodeAction, CodeActionKind, Diagnostic, Position, Range, TextEdit, Url, WorkspaceEdit,
+};
+use once_cell::sync::Lazy;
 use regex::Regex;
 
-use crate::schema::{AvroSchema, AvroType, Field};
-use crate::schema::{EnumSchema, RecordSchema};
+use crate::schema::{AvroSchema, AvroType, EnumSchema, Field, RecordSchema};
 use crate::state::{AstNode, find_node_at_position};
+
+// Compile regex once at startup instead of repeatedly in hot paths
+static AVRO_NAME_REGEX: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"^[A-Za-z_][A-Za-z0-9_]*$").expect("Valid regex pattern"));
+
+/// Builder for creating CodeAction instances with less boilerplate
+struct CodeActionBuilder {
+    uri: Url,
+    title: String,
+    kind: CodeActionKind,
+    is_preferred: bool,
+    diagnostics: Option<Vec<Diagnostic>>,
+    edits: Vec<TextEdit>,
+}
+
+impl CodeActionBuilder {
+    /// Create a new builder with required fields
+    fn new(uri: Url, title: impl Into<String>) -> Self {
+        Self {
+            uri,
+            title: title.into(),
+            kind: CodeActionKind::REFACTOR,
+            is_preferred: false,
+            diagnostics: None,
+            edits: Vec::new(),
+        }
+    }
+
+    /// Set the kind of code action (default: REFACTOR)
+    fn with_kind(mut self, kind: CodeActionKind) -> Self {
+        self.kind = kind;
+        self
+    }
+
+    /// Mark this action as preferred (default: false)
+    fn preferred(mut self) -> Self {
+        self.is_preferred = true;
+        self
+    }
+
+    /// Associate diagnostics with this action
+    fn with_diagnostics(mut self, diagnostics: Vec<Diagnostic>) -> Self {
+        self.diagnostics = Some(diagnostics);
+        self
+    }
+
+    /// Add a text edit to this action
+    fn add_edit(mut self, range: Range, new_text: impl Into<String>) -> Self {
+        self.edits.push(TextEdit {
+            range,
+            new_text: new_text.into(),
+        });
+        self
+    }
+
+    /// Add a text edit at a specific position (zero-width range)
+    fn add_insert(self, position: Position, text: impl Into<String>) -> Self {
+        self.add_edit(
+            Range {
+                start: position,
+                end: position,
+            },
+            text,
+        )
+    }
+
+    /// Build the final CodeAction
+    fn build(self) -> CodeAction {
+        let mut changes = HashMap::new();
+        changes.insert(self.uri, self.edits);
+
+        CodeAction {
+            title: self.title,
+            kind: Some(self.kind),
+            diagnostics: self.diagnostics,
+            edit: Some(WorkspaceEdit {
+                changes: Some(changes),
+                document_changes: None,
+                change_annotations: None,
+            }),
+            command: None,
+            is_preferred: Some(self.is_preferred),
+            disabled: None,
+            data: None,
+        }
+    }
+}
 
 /// Get code actions available at the given range
 pub fn get_code_actions(schema: &AvroSchema, uri: &Url, range: Range) -> Vec<CodeAction> {
@@ -111,36 +202,16 @@ fn create_make_nullable_action(
     uri: &Url,
     field: &Field,
 ) -> Option<async_lsp::lsp_types::CodeAction> {
-    use async_lsp::lsp_types::{CodeAction, CodeActionKind, TextEdit, WorkspaceEdit};
-    use std::collections::HashMap;
-
     let type_range = field.type_range.as_ref()?;
     let current_type = format_avro_type_as_json(&field.field_type);
     let new_type = format!("[\"null\", {}]", current_type);
 
-    let mut changes = HashMap::new();
-    changes.insert(
-        uri.clone(),
-        vec![TextEdit {
-            range: *type_range,
-            new_text: new_type,
-        }],
-    );
-
-    Some(CodeAction {
-        title: format!("Make field '{}' nullable", field.name),
-        kind: Some(CodeActionKind::REFACTOR),
-        diagnostics: None,
-        edit: Some(WorkspaceEdit {
-            changes: Some(changes),
-            document_changes: None,
-            change_annotations: None,
-        }),
-        command: None,
-        is_preferred: Some(false),
-        disabled: None,
-        data: None,
-    })
+    Some(
+        CodeActionBuilder::new(uri.clone(), format!("Make field '{}' nullable", field.name))
+            .with_kind(async_lsp::lsp_types::CodeActionKind::REFACTOR)
+            .add_edit(*type_range, new_type)
+            .build(),
+    )
 }
 
 /// Create "Add documentation" action for record using AST
@@ -148,9 +219,6 @@ fn create_add_doc_action(
     uri: &Url,
     record: &RecordSchema,
 ) -> Option<async_lsp::lsp_types::CodeAction> {
-    use async_lsp::lsp_types::{CodeAction, CodeActionKind, TextEdit, WorkspaceEdit};
-    use std::collections::HashMap;
-
     let name_range = record.name_range.as_ref()?;
 
     // Insert doc field after the name line
@@ -160,32 +228,15 @@ fn create_add_doc_action(
     };
     let insert_text = format!(",\n  \"doc\": \"Description for {}\"", record.name);
 
-    let mut changes = HashMap::new();
-    changes.insert(
-        uri.clone(),
-        vec![TextEdit {
-            range: Range {
-                start: insert_position,
-                end: insert_position,
-            },
-            new_text: insert_text,
-        }],
-    );
-
-    Some(CodeAction {
-        title: format!("Add documentation for '{}'", record.name),
-        kind: Some(CodeActionKind::REFACTOR),
-        diagnostics: None,
-        edit: Some(WorkspaceEdit {
-            changes: Some(changes),
-            document_changes: None,
-            change_annotations: None,
-        }),
-        command: None,
-        is_preferred: Some(false),
-        disabled: None,
-        data: None,
-    })
+    Some(
+        CodeActionBuilder::new(
+            uri.clone(),
+            format!("Add documentation for '{}'", record.name),
+        )
+        .with_kind(async_lsp::lsp_types::CodeActionKind::REFACTOR)
+        .add_insert(insert_position, insert_text)
+        .build(),
+    )
 }
 
 /// Create "Add documentation" action for enum using AST
@@ -193,9 +244,6 @@ fn create_add_doc_action_enum(
     uri: &Url,
     enum_schema: &EnumSchema,
 ) -> Option<async_lsp::lsp_types::CodeAction> {
-    use async_lsp::lsp_types::{CodeAction, CodeActionKind, TextEdit, WorkspaceEdit};
-    use std::collections::HashMap;
-
     let name_range = enum_schema.name_range.as_ref()?;
 
     let insert_position = Position {
@@ -204,32 +252,15 @@ fn create_add_doc_action_enum(
     };
     let insert_text = format!(",\n  \"doc\": \"Description for {}\"", enum_schema.name);
 
-    let mut changes = HashMap::new();
-    changes.insert(
-        uri.clone(),
-        vec![TextEdit {
-            range: Range {
-                start: insert_position,
-                end: insert_position,
-            },
-            new_text: insert_text,
-        }],
-    );
-
-    Some(CodeAction {
-        title: format!("Add documentation for '{}'", enum_schema.name),
-        kind: Some(CodeActionKind::REFACTOR),
-        diagnostics: None,
-        edit: Some(WorkspaceEdit {
-            changes: Some(changes),
-            document_changes: None,
-            change_annotations: None,
-        }),
-        command: None,
-        is_preferred: Some(false),
-        disabled: None,
-        data: None,
-    })
+    Some(
+        CodeActionBuilder::new(
+            uri.clone(),
+            format!("Add documentation for '{}'", enum_schema.name),
+        )
+        .with_kind(async_lsp::lsp_types::CodeActionKind::REFACTOR)
+        .add_insert(insert_position, insert_text)
+        .build(),
+    )
 }
 
 /// Create "Add documentation" action for fixed using AST
@@ -237,9 +268,6 @@ fn create_add_doc_action_fixed(
     uri: &Url,
     fixed_schema: &crate::schema::FixedSchema,
 ) -> Option<async_lsp::lsp_types::CodeAction> {
-    use async_lsp::lsp_types::{CodeAction, CodeActionKind, TextEdit, WorkspaceEdit};
-    use std::collections::HashMap;
-
     let name_range = fixed_schema.name_range.as_ref()?;
 
     let insert_position = Position {
@@ -248,32 +276,15 @@ fn create_add_doc_action_fixed(
     };
     let insert_text = format!(",\n  \"doc\": \"Description for {}\"", fixed_schema.name);
 
-    let mut changes = HashMap::new();
-    changes.insert(
-        uri.clone(),
-        vec![TextEdit {
-            range: Range {
-                start: insert_position,
-                end: insert_position,
-            },
-            new_text: insert_text,
-        }],
-    );
-
-    Some(CodeAction {
-        title: format!("Add documentation for '{}'", fixed_schema.name),
-        kind: Some(CodeActionKind::REFACTOR),
-        diagnostics: None,
-        edit: Some(WorkspaceEdit {
-            changes: Some(changes),
-            document_changes: None,
-            change_annotations: None,
-        }),
-        command: None,
-        is_preferred: Some(false),
-        disabled: None,
-        data: None,
-    })
+    Some(
+        CodeActionBuilder::new(
+            uri.clone(),
+            format!("Add documentation for '{}'", fixed_schema.name),
+        )
+        .with_kind(async_lsp::lsp_types::CodeActionKind::REFACTOR)
+        .add_insert(insert_position, insert_text)
+        .build(),
+    )
 }
 
 /// Create "Add documentation" action for field
@@ -281,9 +292,6 @@ fn create_add_doc_action_field(
     uri: &Url,
     field: &Field,
 ) -> Option<async_lsp::lsp_types::CodeAction> {
-    use async_lsp::lsp_types::{CodeAction, CodeActionKind, TextEdit, WorkspaceEdit};
-    use std::collections::HashMap;
-
     let name_range = field.name_range.as_ref()?;
 
     // Insert doc field after the field name
@@ -293,32 +301,15 @@ fn create_add_doc_action_field(
     };
     let insert_text = format!(",\n    \"doc\": \"Description for {}\"", field.name);
 
-    let mut changes = HashMap::new();
-    changes.insert(
-        uri.clone(),
-        vec![TextEdit {
-            range: Range {
-                start: insert_position,
-                end: insert_position,
-            },
-            new_text: insert_text,
-        }],
-    );
-
-    Some(CodeAction {
-        title: format!("Add documentation for field '{}'", field.name),
-        kind: Some(CodeActionKind::REFACTOR),
-        diagnostics: None,
-        edit: Some(WorkspaceEdit {
-            changes: Some(changes),
-            document_changes: None,
-            change_annotations: None,
-        }),
-        command: None,
-        is_preferred: Some(false),
-        disabled: None,
-        data: None,
-    })
+    Some(
+        CodeActionBuilder::new(
+            uri.clone(),
+            format!("Add documentation for field '{}'", field.name),
+        )
+        .with_kind(async_lsp::lsp_types::CodeActionKind::REFACTOR)
+        .add_insert(insert_position, insert_text)
+        .build(),
+    )
 }
 
 /// Create "Add field to record" action using AST
@@ -326,9 +317,6 @@ fn create_add_field_action(
     uri: &Url,
     record: &RecordSchema,
 ) -> Option<async_lsp::lsp_types::CodeAction> {
-    use async_lsp::lsp_types::{CodeAction, CodeActionKind, TextEdit, WorkspaceEdit};
-    use std::collections::HashMap;
-
     // Insert at the end of the fields array
     // We need to find the last field's range and insert after it
     let last_field = record.fields.last()?;
@@ -342,32 +330,12 @@ fn create_add_field_action(
     let new_field = r#"{"name": "new_field", "type": "string"}"#;
     let insert_text = format!(",\n    {}", new_field);
 
-    let mut changes = HashMap::new();
-    changes.insert(
-        uri.clone(),
-        vec![TextEdit {
-            range: Range {
-                start: insert_position,
-                end: insert_position,
-            },
-            new_text: insert_text,
-        }],
-    );
-
-    Some(CodeAction {
-        title: "Add field to record".to_string(),
-        kind: Some(CodeActionKind::REFACTOR),
-        diagnostics: None,
-        edit: Some(WorkspaceEdit {
-            changes: Some(changes),
-            document_changes: None,
-            change_annotations: None,
-        }),
-        command: None,
-        is_preferred: Some(false),
-        disabled: None,
-        data: None,
-    })
+    Some(
+        CodeActionBuilder::new(uri.clone(), "Add field to record".to_string())
+            .with_kind(async_lsp::lsp_types::CodeActionKind::REFACTOR)
+            .add_insert(insert_position, insert_text)
+            .build(),
+    )
 }
 
 /// Helper to find parent record and create add field action
@@ -390,9 +358,6 @@ fn create_sort_fields_action(
     uri: &Url,
     record: &RecordSchema,
 ) -> Option<async_lsp::lsp_types::CodeAction> {
-    use async_lsp::lsp_types::{CodeAction, CodeActionKind, TextEdit, WorkspaceEdit};
-    use std::collections::HashMap;
-
     // Check if fields are already sorted
     let field_names: Vec<&str> = record.fields.iter().map(|f| f.name.as_str()).collect();
     let mut sorted_names = field_names.clone();
@@ -447,29 +412,12 @@ fn create_sort_fields_action(
 
     let new_text = sorted_json.concat();
 
-    let mut changes = HashMap::new();
-    changes.insert(
-        uri.clone(),
-        vec![TextEdit {
-            range: fields_range,
-            new_text,
-        }],
-    );
-
-    Some(CodeAction {
-        title: "Sort fields alphabetically".to_string(),
-        kind: Some(CodeActionKind::REFACTOR),
-        diagnostics: None,
-        edit: Some(WorkspaceEdit {
-            changes: Some(changes),
-            document_changes: None,
-            change_annotations: None,
-        }),
-        command: None,
-        is_preferred: Some(false),
-        disabled: None,
-        data: None,
-    })
+    Some(
+        CodeActionBuilder::new(uri.clone(), "Sort fields alphabetically".to_string())
+            .with_kind(async_lsp::lsp_types::CodeActionKind::REFACTOR)
+            .add_edit(fields_range, new_text)
+            .build(),
+    )
 }
 
 /// Create "Add default value" action for fields without defaults
@@ -477,9 +425,6 @@ fn create_add_default_value_action(
     uri: &Url,
     field: &Field,
 ) -> Option<async_lsp::lsp_types::CodeAction> {
-    use async_lsp::lsp_types::{CodeAction, CodeActionKind, TextEdit, WorkspaceEdit};
-    use std::collections::HashMap;
-
     // Determine appropriate default value based on type
     let default_value = get_default_for_type(&field.field_type)?;
 
@@ -493,32 +438,15 @@ fn create_add_default_value_action(
 
     let insert_text = format!(", \"default\": {}", default_value);
 
-    let mut changes = HashMap::new();
-    changes.insert(
-        uri.clone(),
-        vec![TextEdit {
-            range: Range {
-                start: insert_position,
-                end: insert_position,
-            },
-            new_text: insert_text,
-        }],
-    );
-
-    Some(CodeAction {
-        title: format!("Add default value for '{}'", field.name),
-        kind: Some(CodeActionKind::REFACTOR),
-        diagnostics: None,
-        edit: Some(WorkspaceEdit {
-            changes: Some(changes),
-            document_changes: None,
-            change_annotations: None,
-        }),
-        command: None,
-        is_preferred: Some(false),
-        disabled: None,
-        data: None,
-    })
+    Some(
+        CodeActionBuilder::new(
+            uri.clone(),
+            format!("Add default value for '{}'", field.name),
+        )
+        .with_kind(async_lsp::lsp_types::CodeActionKind::REFACTOR)
+        .add_insert(insert_position, insert_text)
+        .build(),
+    )
 }
 
 /// Get a sensible default value for an Avro type
@@ -808,9 +736,6 @@ fn create_fix_invalid_name_structured(
     invalid_name: &str,
     suggested_name: Option<&str>,
 ) -> Option<CodeAction> {
-    use async_lsp::lsp_types::{CodeActionKind, TextEdit, WorkspaceEdit};
-    use std::collections::HashMap;
-
     // Use suggested name from error if available, otherwise generate one
     let fixed_name = suggested_name
         .map(|s| s.to_string())
@@ -819,25 +744,16 @@ fn create_fix_invalid_name_structured(
     // Try to use range from error first, otherwise search for it
     let name_range = diagnostic.range;
 
-    let mut changes = HashMap::new();
-    changes.insert(
-        uri.clone(),
-        vec![TextEdit {
-            range: name_range,
-            new_text: format!("\"{}\"", fixed_name),
-        }],
-    );
-
-    Some(CodeAction {
-        title: format!("Fix invalid name: '{}' → '{}'", invalid_name, fixed_name),
-        kind: Some(CodeActionKind::QUICKFIX),
-        diagnostics: Some(vec![diagnostic.clone()]),
-        edit: Some(WorkspaceEdit {
-            changes: Some(changes),
-            ..Default::default()
-        }),
-        ..Default::default()
-    })
+    Some(
+        CodeActionBuilder::new(
+            uri.clone(),
+            format!("Fix invalid name: '{}' → '{}'", invalid_name, fixed_name),
+        )
+        .with_kind(async_lsp::lsp_types::CodeActionKind::QUICKFIX)
+        .with_diagnostics(vec![diagnostic.clone()])
+        .add_edit(name_range, format!("\"{}\"", fixed_name))
+        .build(),
+    )
 }
 
 /// Create a quick fix for invalid namespace errors using structured error data
@@ -848,9 +764,6 @@ fn create_fix_invalid_namespace_structured(
     invalid_namespace: &str,
     suggested_namespace: Option<&str>,
 ) -> Option<CodeAction> {
-    use async_lsp::lsp_types::{CodeActionKind, TextEdit, WorkspaceEdit};
-    use std::collections::HashMap;
-
     // Use suggested namespace from error if available, otherwise generate one
     let fixed_namespace = suggested_namespace
         .map(|s| s.to_string())
@@ -859,19 +772,12 @@ fn create_fix_invalid_namespace_structured(
     // Try to use range from error first, otherwise search for it
     let namespace_range = diagnostic.range;
 
-    let mut changes = HashMap::new();
-    changes.insert(
-        uri.clone(),
-        vec![TextEdit {
-            range: namespace_range,
-            new_text: if fixed_namespace.is_empty() {
-                // If namespace becomes empty, remove the field entirely
-                String::new()
-            } else {
-                format!("\"{}\"", fixed_namespace)
-            },
-        }],
-    );
+    let new_text = if fixed_namespace.is_empty() {
+        // If namespace becomes empty, remove the field entirely
+        String::new()
+    } else {
+        format!("\"{}\"", fixed_namespace)
+    };
 
     let title = if fixed_namespace.is_empty() {
         format!("Remove invalid namespace '{}'", invalid_namespace)
@@ -882,16 +788,13 @@ fn create_fix_invalid_namespace_structured(
         )
     };
 
-    Some(CodeAction {
-        title,
-        kind: Some(CodeActionKind::QUICKFIX),
-        diagnostics: Some(vec![diagnostic.clone()]),
-        edit: Some(WorkspaceEdit {
-            changes: Some(changes),
-            ..Default::default()
-        }),
-        ..Default::default()
-    })
+    Some(
+        CodeActionBuilder::new(uri.clone(), title)
+            .with_kind(async_lsp::lsp_types::CodeActionKind::QUICKFIX)
+            .with_diagnostics(vec![diagnostic.clone()])
+            .add_edit(namespace_range, new_text)
+            .build(),
+    )
 }
 
 /// Create a quick fix for invalid primitive type errors (typos)
@@ -901,41 +804,28 @@ fn create_fix_invalid_primitive_type(
     invalid_type: &str,
     suggested_type: Option<&str>,
 ) -> Option<CodeAction> {
-    use async_lsp::lsp_types::{CodeActionKind, TextEdit, WorkspaceEdit};
-    use std::collections::HashMap;
-
     // Must have a suggestion to create a fix
     let fixed_type = suggested_type?;
 
     // Use the diagnostic range (should be on the "type" field)
     let type_range = diagnostic.range;
 
-    let mut changes = HashMap::new();
-    changes.insert(
-        uri.clone(),
-        vec![TextEdit {
-            range: type_range,
-            new_text: format!("\"{}\"", fixed_type),
-        }],
-    );
-
-    Some(CodeAction {
-        title: format!("Fix typo: '{}' → '{}'", invalid_type, fixed_type),
-        kind: Some(CodeActionKind::QUICKFIX),
-        diagnostics: Some(vec![diagnostic.clone()]),
-        edit: Some(WorkspaceEdit {
-            changes: Some(changes),
-            ..Default::default()
-        }),
-        ..Default::default()
-    })
+    Some(
+        CodeActionBuilder::new(
+            uri.clone(),
+            format!("Fix typo: '{}' → '{}'", invalid_type, fixed_type),
+        )
+        .with_kind(async_lsp::lsp_types::CodeActionKind::QUICKFIX)
+        .with_diagnostics(vec![diagnostic.clone()])
+        .add_edit(type_range, format!("\"{}\"", fixed_type))
+        .build(),
+    )
 }
 
 /// Create a quick fix for nested union errors
 /// Flattens nested union like [["null", "string"]] to ["null", "string"]
 fn create_fix_nested_union(uri: &Url, text: &str, diagnostic: &Diagnostic) -> Option<CodeAction> {
-    use async_lsp::lsp_types::{CodeActionKind, Position, Range, TextEdit, WorkspaceEdit};
-    use std::collections::HashMap;
+    use async_lsp::lsp_types::{Position, Range};
 
     tracing::info!(
         "create_fix_nested_union called for diagnostic at range {:?}",
@@ -1004,26 +894,14 @@ fn create_fix_nested_union(uri: &Url, text: &str, diagnostic: &Diagnostic) -> Op
 
                     tracing::info!("Creating action with range {:?}", replace_range);
 
-                    let mut changes = HashMap::new();
-                    changes.insert(
-                        uri.clone(),
-                        vec![TextEdit {
-                            range: replace_range,
-                            new_text: flattened,
-                        }],
+                    return Some(
+                        CodeActionBuilder::new(uri.clone(), "Flatten nested union".to_string())
+                            .with_kind(async_lsp::lsp_types::CodeActionKind::QUICKFIX)
+                            .with_diagnostics(vec![diagnostic.clone()])
+                            .preferred()
+                            .add_edit(replace_range, flattened)
+                            .build(),
                     );
-
-                    return Some(CodeAction {
-                        title: "Flatten nested union".to_string(),
-                        kind: Some(CodeActionKind::QUICKFIX),
-                        diagnostics: Some(vec![diagnostic.clone()]),
-                        edit: Some(WorkspaceEdit {
-                            changes: Some(changes),
-                            ..Default::default()
-                        }),
-                        is_preferred: Some(true),
-                        ..Default::default()
-                    });
                 } else {
                     tracing::info!(
                         "Not a nested union pattern: outer_arr len = {:?}, has inner array = {:?}",
@@ -1053,8 +931,7 @@ fn create_fix_duplicate_union_type(
     _diagnostic: &Diagnostic,
     duplicate_type: &str,
 ) -> Option<CodeAction> {
-    use async_lsp::lsp_types::{CodeActionKind, Position, Range, TextEdit, WorkspaceEdit};
-    use std::collections::HashMap;
+    use async_lsp::lsp_types::{Position, Range};
 
     // Search through the text for union arrays that contain the duplicate type
     let lines: Vec<&str> = text.lines().collect();
@@ -1144,26 +1021,16 @@ fn create_fix_duplicate_union_type(
                         },
                     };
 
-                    let mut changes = HashMap::new();
-                    changes.insert(
-                        uri.clone(),
-                        vec![TextEdit {
-                            range: replace_range,
-                            new_text: fixed,
-                        }],
+                    return Some(
+                        CodeActionBuilder::new(
+                            uri.clone(),
+                            format!("Remove duplicate '{}' from union", duplicate_type),
+                        )
+                        .with_kind(async_lsp::lsp_types::CodeActionKind::QUICKFIX)
+                        .preferred()
+                        .add_edit(replace_range, fixed)
+                        .build(),
                     );
-
-                    return Some(CodeAction {
-                        title: format!("Remove duplicate '{}' from union", duplicate_type),
-                        kind: Some(CodeActionKind::QUICKFIX),
-                        diagnostics: None,
-                        edit: Some(WorkspaceEdit {
-                            changes: Some(changes),
-                            ..Default::default()
-                        }),
-                        is_preferred: Some(true),
-                        ..Default::default()
-                    });
                 }
             }
         }
@@ -1179,8 +1046,7 @@ fn create_fix_missing_fields(
     text: &str,
     _diagnostic: &Diagnostic,
 ) -> Option<CodeAction> {
-    use async_lsp::lsp_types::{CodeActionKind, Position, Range, TextEdit, WorkspaceEdit};
-    use std::collections::HashMap;
+    use async_lsp::lsp_types::{Position, Range};
 
     // Find the record definition that's missing fields
     // Look for a record object with "type": "record" and "name" but no "fields"
@@ -1224,26 +1090,13 @@ fn create_fix_missing_fields(
                         },
                     };
 
-                    let mut changes = HashMap::new();
-                    changes.insert(
-                        uri.clone(),
-                        vec![TextEdit {
-                            range: replace_range,
-                            new_text,
-                        }],
+                    return Some(
+                        CodeActionBuilder::new(uri.clone(), "Add empty fields array".to_string())
+                            .with_kind(async_lsp::lsp_types::CodeActionKind::QUICKFIX)
+                            .preferred()
+                            .add_edit(replace_range, new_text)
+                            .build(),
                     );
-
-                    return Some(CodeAction {
-                        title: "Add empty fields array".to_string(),
-                        kind: Some(CodeActionKind::QUICKFIX),
-                        diagnostics: None,
-                        edit: Some(WorkspaceEdit {
-                            changes: Some(changes),
-                            ..Default::default()
-                        }),
-                        is_preferred: Some(true),
-                        ..Default::default()
-                    });
                 }
             }
         }
@@ -1259,8 +1112,7 @@ fn create_fix_invalid_boolean_default(
     text: &str,
     diagnostic: &Diagnostic,
 ) -> Option<CodeAction> {
-    use async_lsp::lsp_types::{CodeActionKind, Position, Range, TextEdit, WorkspaceEdit};
-    use std::collections::HashMap;
+    use async_lsp::lsp_types::{Position, Range};
 
     // Search for "default": "something" or "default": 123 near the diagnostic range
     let lines: Vec<&str> = text.lines().collect();
@@ -1321,26 +1173,17 @@ fn create_fix_invalid_boolean_default(
                     "false"
                 };
 
-                let mut changes = HashMap::new();
-                changes.insert(
-                    uri.clone(),
-                    vec![TextEdit {
-                        range: value_range,
-                        new_text: correct_value.to_string(),
-                    }],
+                return Some(
+                    CodeActionBuilder::new(
+                        uri.clone(),
+                        format!("Fix invalid boolean default: change to {}", correct_value),
+                    )
+                    .with_kind(async_lsp::lsp_types::CodeActionKind::QUICKFIX)
+                    .with_diagnostics(vec![diagnostic.clone()])
+                    .preferred()
+                    .add_edit(value_range, correct_value.to_string())
+                    .build(),
                 );
-
-                return Some(CodeAction {
-                    title: format!("Fix invalid boolean default: change to {}", correct_value),
-                    kind: Some(CodeActionKind::QUICKFIX),
-                    diagnostics: Some(vec![diagnostic.clone()]),
-                    edit: Some(WorkspaceEdit {
-                        changes: Some(changes),
-                        ..Default::default()
-                    }),
-                    is_preferred: Some(true),
-                    ..Default::default()
-                });
             }
         }
     }
@@ -1355,8 +1198,7 @@ fn create_fix_invalid_array_default(
     text: &str,
     diagnostic: &Diagnostic,
 ) -> Option<CodeAction> {
-    use async_lsp::lsp_types::{CodeActionKind, Position, Range, TextEdit, WorkspaceEdit};
-    use std::collections::HashMap;
+    use async_lsp::lsp_types::{Position, Range};
 
     // Search for "default": <not-an-array> near the diagnostic range
     let lines: Vec<&str> = text.lines().collect();
@@ -1402,26 +1244,17 @@ fn create_fix_invalid_array_default(
                     },
                 };
 
-                let mut changes = HashMap::new();
-                changes.insert(
-                    uri.clone(),
-                    vec![TextEdit {
-                        range: value_range,
-                        new_text: "[]".to_string(),
-                    }],
+                return Some(
+                    CodeActionBuilder::new(
+                        uri.clone(),
+                        "Fix invalid array default: change to []".to_string(),
+                    )
+                    .with_kind(async_lsp::lsp_types::CodeActionKind::QUICKFIX)
+                    .with_diagnostics(vec![diagnostic.clone()])
+                    .preferred()
+                    .add_edit(value_range, "[]".to_string())
+                    .build(),
                 );
-
-                return Some(CodeAction {
-                    title: "Fix invalid array default: change to []".to_string(),
-                    kind: Some(CodeActionKind::QUICKFIX),
-                    diagnostics: Some(vec![diagnostic.clone()]),
-                    edit: Some(WorkspaceEdit {
-                        changes: Some(changes),
-                        ..Default::default()
-                    }),
-                    is_preferred: Some(true),
-                    ..Default::default()
-                });
             }
         }
     }
@@ -1436,8 +1269,7 @@ fn create_fix_invalid_enum_default(
     text: &str,
     diagnostic: &Diagnostic,
 ) -> Option<CodeAction> {
-    use async_lsp::lsp_types::{CodeActionKind, Position, Range, TextEdit, WorkspaceEdit};
-    use std::collections::HashMap;
+    use async_lsp::lsp_types::{Position, Range};
 
     // Parse the error message to extract the invalid value: "Default value 'YELLOW' is not a valid enum symbol"
     let msg = &diagnostic.message;
@@ -1495,26 +1327,17 @@ fn create_fix_invalid_enum_default(
                         },
                     };
 
-                    let mut changes = HashMap::new();
-                    changes.insert(
-                        uri.clone(),
-                        vec![TextEdit {
-                            range,
-                            new_text: new_array_str,
-                        }],
+                    return Some(
+                        CodeActionBuilder::new(
+                            uri.clone(),
+                            format!("Add '{}' to enum symbols", invalid_value),
+                        )
+                        .with_kind(async_lsp::lsp_types::CodeActionKind::QUICKFIX)
+                        .with_diagnostics(vec![diagnostic.clone()])
+                        .preferred()
+                        .add_edit(range, new_array_str)
+                        .build(),
                     );
-
-                    return Some(CodeAction {
-                        title: format!("Add '{}' to enum symbols", invalid_value),
-                        kind: Some(CodeActionKind::QUICKFIX),
-                        diagnostics: Some(vec![diagnostic.clone()]),
-                        edit: Some(WorkspaceEdit {
-                            changes: Some(changes),
-                            ..Default::default()
-                        }),
-                        is_preferred: Some(true),
-                        ..Default::default()
-                    });
                 }
             }
         }
@@ -1561,12 +1384,11 @@ fn create_fix_invalid_decimal_scale(
         None
     };
 
-    if scale_value.is_none() || precision_value.is_none() {
-        return fixes;
-    }
-
-    let scale = scale_value.unwrap();
-    let precision = precision_value.unwrap();
+    // Both values must be present after the check above
+    let (scale, precision) = match (scale_value, precision_value) {
+        (Some(s), Some(p)) => (s, p),
+        _ => return fixes,
+    };
 
     // Search for "scale": value and "precision": value in the text
     let lines: Vec<&str> = text.lines().collect();
@@ -1713,8 +1535,7 @@ fn create_fix_missing_decimal_precision(
     text: &str,
     diagnostic: &Diagnostic,
 ) -> Option<CodeAction> {
-    use async_lsp::lsp_types::{CodeActionKind, Position, Range, TextEdit, WorkspaceEdit};
-    use std::collections::HashMap;
+    use async_lsp::lsp_types::{Position, Range};
 
     // Search for "logicalType": "decimal" and add precision after it
     let lines: Vec<&str> = text.lines().collect();
@@ -1751,30 +1572,22 @@ fn create_fix_missing_decimal_precision(
             let default_precision = 10;
 
             let insert_text = format!(",\n{}\"precision\": {}", indent, default_precision);
+            let insert_position_range = Range {
+                start: insert_position,
+                end: insert_position,
+            };
 
-            let mut changes = HashMap::new();
-            changes.insert(
-                uri.clone(),
-                vec![TextEdit {
-                    range: Range {
-                        start: insert_position,
-                        end: insert_position,
-                    },
-                    new_text: insert_text,
-                }],
+            return Some(
+                CodeActionBuilder::new(
+                    uri.clone(),
+                    format!("Add precision attribute (default: {})", default_precision),
+                )
+                .with_kind(async_lsp::lsp_types::CodeActionKind::QUICKFIX)
+                .with_diagnostics(vec![diagnostic.clone()])
+                .preferred()
+                .add_edit(insert_position_range, insert_text)
+                .build(),
             );
-
-            return Some(CodeAction {
-                title: format!("Add precision attribute (default: {})", default_precision),
-                kind: Some(CodeActionKind::QUICKFIX),
-                diagnostics: Some(vec![diagnostic.clone()]),
-                edit: Some(WorkspaceEdit {
-                    changes: Some(changes),
-                    ..Default::default()
-                }),
-                is_preferred: Some(true),
-                ..Default::default()
-            });
         }
     }
 
@@ -1788,8 +1601,7 @@ fn create_fix_invalid_duration_size(
     text: &str,
     diagnostic: &Diagnostic,
 ) -> Option<CodeAction> {
-    use async_lsp::lsp_types::{CodeActionKind, Position, Range, TextEdit, WorkspaceEdit};
-    use std::collections::HashMap;
+    use async_lsp::lsp_types::{Position, Range};
 
     // Search for "size": <number> within the diagnostic range and replace it with 12
     let lines: Vec<&str> = text.lines().collect();
@@ -1835,26 +1647,17 @@ fn create_fix_invalid_duration_size(
                 },
             };
 
-            let mut changes = HashMap::new();
-            changes.insert(
-                uri.clone(),
-                vec![TextEdit {
-                    range,
-                    new_text: "12".to_string(),
-                }],
+            return Some(
+                CodeActionBuilder::new(
+                    uri.clone(),
+                    "Set size to 12 (required for duration)".to_string(),
+                )
+                .with_kind(async_lsp::lsp_types::CodeActionKind::QUICKFIX)
+                .with_diagnostics(vec![diagnostic.clone()])
+                .preferred()
+                .add_edit(range, "12".to_string())
+                .build(),
             );
-
-            return Some(CodeAction {
-                title: "Set size to 12 (required for duration)".to_string(),
-                kind: Some(CodeActionKind::QUICKFIX),
-                diagnostics: Some(vec![diagnostic.clone()]),
-                edit: Some(WorkspaceEdit {
-                    changes: Some(changes),
-                    ..Default::default()
-                }),
-                is_preferred: Some(true),
-                ..Default::default()
-            });
         }
     }
 
@@ -1868,9 +1671,6 @@ fn create_fix_invalid_name(
     diagnostic: &Diagnostic,
     invalid_name: &str,
 ) -> Option<CodeAction> {
-    use async_lsp::lsp_types::{CodeActionKind, TextEdit, WorkspaceEdit};
-    use std::collections::HashMap;
-
     // Generate a valid name by:
     // 1. If starts with digit, prepend underscore
     // 2. Replace invalid characters with underscores
@@ -1879,29 +1679,17 @@ fn create_fix_invalid_name(
     // Find the name in the schema to get the exact position
     let name_range = find_name_range_in_schema(schema, invalid_name, diagnostic.range)?;
 
-    let mut changes = HashMap::new();
-    changes.insert(
-        uri.clone(),
-        vec![TextEdit {
-            range: name_range,
-            new_text: format!("\"{}\"", fixed_name),
-        }],
-    );
-
-    Some(CodeAction {
-        title: format!("Fix invalid name: '{}' → '{}'", invalid_name, fixed_name),
-        kind: Some(CodeActionKind::QUICKFIX),
-        diagnostics: Some(vec![diagnostic.clone()]),
-        edit: Some(WorkspaceEdit {
-            changes: Some(changes),
-            document_changes: None,
-            change_annotations: None,
-        }),
-        command: None,
-        is_preferred: Some(true),
-        disabled: None,
-        data: None,
-    })
+    Some(
+        CodeActionBuilder::new(
+            uri.clone(),
+            format!("Fix invalid name: '{}' → '{}'", invalid_name, fixed_name),
+        )
+        .with_kind(async_lsp::lsp_types::CodeActionKind::QUICKFIX)
+        .with_diagnostics(vec![diagnostic.clone()])
+        .preferred()
+        .add_edit(name_range, format!("\"{}\"", fixed_name))
+        .build(),
+    )
 }
 
 /// Create a quick fix for invalid namespace errors
@@ -1911,9 +1699,6 @@ fn create_fix_invalid_namespace(
     diagnostic: &Diagnostic,
     invalid_namespace: &str,
 ) -> Option<CodeAction> {
-    use async_lsp::lsp_types::{CodeActionKind, TextEdit, WorkspaceEdit};
-    use std::collections::HashMap;
-
     // Fix namespace by filtering out invalid segments
     let fixed_namespace = fix_invalid_namespace(invalid_namespace);
 
@@ -1925,32 +1710,20 @@ fn create_fix_invalid_namespace(
     // Find the namespace value in the schema
     let namespace_range = find_namespace_range_in_schema(schema, diagnostic.range)?;
 
-    let mut changes = HashMap::new();
-    changes.insert(
-        uri.clone(),
-        vec![TextEdit {
-            range: namespace_range,
-            new_text: format!("\"{}\"", fixed_namespace),
-        }],
-    );
-
-    Some(CodeAction {
-        title: format!(
-            "Fix invalid namespace: '{}' → '{}'",
-            invalid_namespace, fixed_namespace
-        ),
-        kind: Some(CodeActionKind::QUICKFIX),
-        diagnostics: Some(vec![diagnostic.clone()]),
-        edit: Some(WorkspaceEdit {
-            changes: Some(changes),
-            document_changes: None,
-            change_annotations: None,
-        }),
-        command: None,
-        is_preferred: Some(true),
-        disabled: None,
-        data: None,
-    })
+    Some(
+        CodeActionBuilder::new(
+            uri.clone(),
+            format!(
+                "Fix invalid namespace: '{}' → '{}'",
+                invalid_namespace, fixed_namespace
+            ),
+        )
+        .with_kind(async_lsp::lsp_types::CodeActionKind::QUICKFIX)
+        .with_diagnostics(vec![diagnostic.clone()])
+        .preferred()
+        .add_edit(namespace_range, format!("\"{}\"", fixed_namespace))
+        .build(),
+    )
 }
 
 /// Create action to remove invalid namespace field
@@ -1959,34 +1732,18 @@ fn create_remove_namespace_action(
     _schema: &AvroSchema,
     diagnostic: &Diagnostic,
 ) -> Option<CodeAction> {
-    use async_lsp::lsp_types::{CodeActionKind, TextEdit, WorkspaceEdit};
-    use std::collections::HashMap;
-
     // For now, just suggest to fix the namespace manually
     // A more sophisticated implementation would find and remove the entire field
-    let mut changes = HashMap::new();
-    changes.insert(
-        uri.clone(),
-        vec![TextEdit {
-            range: diagnostic.range,
-            new_text: "\"valid_namespace\"".to_string(),
-        }],
-    );
-
-    Some(CodeAction {
-        title: "Replace with valid namespace placeholder".to_string(),
-        kind: Some(CodeActionKind::QUICKFIX),
-        diagnostics: Some(vec![diagnostic.clone()]),
-        edit: Some(WorkspaceEdit {
-            changes: Some(changes),
-            document_changes: None,
-            change_annotations: None,
-        }),
-        command: None,
-        is_preferred: Some(false),
-        disabled: None,
-        data: None,
-    })
+    Some(
+        CodeActionBuilder::new(
+            uri.clone(),
+            "Replace with valid namespace placeholder".to_string(),
+        )
+        .with_kind(async_lsp::lsp_types::CodeActionKind::QUICKFIX)
+        .with_diagnostics(vec![diagnostic.clone()])
+        .add_edit(diagnostic.range, "\"valid_namespace\"".to_string())
+        .build(),
+    )
 }
 
 /// Create a quick fix for logical type errors
@@ -1996,9 +1753,6 @@ fn create_fix_logical_type(
     text: &str,
     diagnostic: &Diagnostic,
 ) -> Option<CodeAction> {
-    use async_lsp::lsp_types::{CodeActionKind, TextEdit, WorkspaceEdit};
-    use std::collections::HashMap;
-
     // Parse the error message to extract the required type
     // e.g., "Invalid logical type 'uuid' for type int - requires string"
     let msg = &diagnostic.message;
@@ -2019,29 +1773,17 @@ fn create_fix_logical_type(
     // Find the type field in the object
     let type_range = find_primitive_type_range(text, diagnostic.range)?;
 
-    let mut changes = HashMap::new();
-    changes.insert(
-        uri.clone(),
-        vec![TextEdit {
-            range: type_range,
-            new_text: format!("\"{}\"", required_type),
-        }],
-    );
-
-    Some(CodeAction {
-        title: format!("Change base type to '{}'", required_type),
-        kind: Some(CodeActionKind::QUICKFIX),
-        diagnostics: Some(vec![diagnostic.clone()]),
-        edit: Some(WorkspaceEdit {
-            changes: Some(changes),
-            document_changes: None,
-            change_annotations: None,
-        }),
-        command: None,
-        is_preferred: Some(true),
-        disabled: None,
-        data: None,
-    })
+    Some(
+        CodeActionBuilder::new(
+            uri.clone(),
+            format!("Change base type to '{}'", required_type),
+        )
+        .with_kind(async_lsp::lsp_types::CodeActionKind::QUICKFIX)
+        .with_diagnostics(vec![diagnostic.clone()])
+        .preferred()
+        .add_edit(type_range, format!("\"{}\"", required_type))
+        .build(),
+    )
 }
 
 /// Create a quick fix for duplicate symbols
@@ -2051,44 +1793,27 @@ fn create_fix_duplicate_symbol(
     diagnostic: &Diagnostic,
     duplicate_symbol: &str,
 ) -> Option<CodeAction> {
-    use async_lsp::lsp_types::{CodeActionKind, TextEdit, WorkspaceEdit};
-    use std::collections::HashMap;
-
     // Find the duplicate symbol in the symbols array and remove it
     let (_first_pos, second_pos) = find_duplicate_symbol_positions(text, duplicate_symbol)?;
 
     // Remove the second occurrence (including comma)
-    let mut changes = HashMap::new();
-    changes.insert(
-        uri.clone(),
-        vec![TextEdit {
-            range: second_pos,
-            new_text: String::new(),
-        }],
-    );
-
-    Some(CodeAction {
-        title: format!("Remove duplicate symbol '{}'", duplicate_symbol),
-        kind: Some(CodeActionKind::QUICKFIX),
-        diagnostics: Some(vec![diagnostic.clone()]),
-        edit: Some(WorkspaceEdit {
-            changes: Some(changes),
-            document_changes: None,
-            change_annotations: None,
-        }),
-        command: None,
-        is_preferred: Some(true),
-        disabled: None,
-        data: None,
-    })
+    Some(
+        CodeActionBuilder::new(
+            uri.clone(),
+            format!("Remove duplicate symbol '{}'", duplicate_symbol),
+        )
+        .with_kind(async_lsp::lsp_types::CodeActionKind::QUICKFIX)
+        .with_diagnostics(vec![diagnostic.clone()])
+        .preferred()
+        .add_edit(second_pos, String::new())
+        .build(),
+    )
 }
 
 /// Fix an invalid name according to Avro rules
 fn fix_invalid_name(name: &str) -> String {
-    let regex = Regex::new(r"^[A-Za-z_][A-Za-z0-9_]*$").unwrap();
-
     // If already valid, return as-is
-    if regex.is_match(name) {
+    if AVRO_NAME_REGEX.is_match(name) {
         return name.to_string();
     }
 
@@ -2124,10 +1849,13 @@ fn fix_invalid_name(name: &str) -> String {
     }
 
     // Ensure we start with valid character
-    if fixed.is_empty() || !regex.is_match(&fixed) {
+    if fixed.is_empty() || !AVRO_NAME_REGEX.is_match(&fixed) {
         if fixed.is_empty() {
             fixed = "_".to_string();
-        } else if !fixed.chars().next().unwrap().is_ascii_alphabetic() && !fixed.starts_with('_') {
+        } else if let Some(first_char) = fixed.chars().next()
+            && !first_char.is_ascii_alphabetic()
+            && !fixed.starts_with('_')
+        {
             fixed = format!("_{}", fixed);
         }
     }
@@ -2138,12 +1866,11 @@ fn fix_invalid_name(name: &str) -> String {
 /// Fix an invalid namespace by removing or fixing invalid segments
 fn fix_invalid_namespace(namespace: &str) -> String {
     let segments: Vec<&str> = namespace.split('.').collect();
-    let regex = Regex::new(r"^[A-Za-z_][A-Za-z0-9_]*$").unwrap();
 
     let valid_segments: Vec<String> = segments
         .iter()
         .filter_map(|seg| {
-            if regex.is_match(seg) {
+            if AVRO_NAME_REGEX.is_match(seg) {
                 // Already valid
                 Some(seg.to_string())
             } else {
@@ -2152,7 +1879,7 @@ fn fix_invalid_namespace(namespace: &str) -> String {
                 if has_letter {
                     // Try to fix it if it has letters
                     let fixed = fix_invalid_name(seg);
-                    if regex.is_match(&fixed) {
+                    if AVRO_NAME_REGEX.is_match(&fixed) {
                         Some(fixed)
                     } else {
                         None

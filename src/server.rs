@@ -1,7 +1,9 @@
-use async_lsp::router::Router;
-use async_lsp::{ClientSocket, LanguageClient, LanguageServer, ResponseError, lsp_types::*};
-use futures::future::BoxFuture;
 use std::ops::ControlFlow;
+
+use async_lsp::lsp_types::*;
+use async_lsp::router::Router;
+use async_lsp::{ClientSocket, LanguageClient, LanguageServer, ResponseError};
+use futures::future::BoxFuture;
 
 use crate::state::ServerState;
 

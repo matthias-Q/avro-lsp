@@ -1,11 +1,7 @@
-mod handlers;
-mod schema;
-mod server;
-mod state;
-mod workspace;
-
 use tokio_util::compat::{TokioAsyncReadCompatExt, TokioAsyncWriteCompatExt};
 use tracing_subscriber::{EnvFilter, fmt, prelude::*};
+
+use avro_lsp::server::AvroLanguageServer;
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() {
@@ -20,7 +16,7 @@ async fn main() {
     tracing::info!("Starting avro-lsp server");
 
     // Build the LSP server
-    let (mainloop, _) = async_lsp::MainLoop::new_server(server::AvroLanguageServer::new_router);
+    let (mainloop, _) = async_lsp::MainLoop::new_server(AvroLanguageServer::new_router);
 
     // Run the server with stdio transport
     // We need to convert tokio's AsyncRead/AsyncWrite to futures' AsyncRead/AsyncWrite

@@ -65,6 +65,7 @@ dependencies = [
  "futures",
  "nom",
  "nom_locate",
+ "once_cell",
  "pretty_assertions",
  "regex",
  "serde",

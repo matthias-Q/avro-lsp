@@ -1,8 +1,9 @@
+use std::collections::HashMap;
+
 use async_lsp::ResponseError;
 use async_lsp::lsp_types::{
     Location, Position, PrepareRenameResponse, Range, TextEdit, Url, WorkspaceEdit,
 };
-use std::collections::HashMap;
 
 use crate::schema::{AvroSchema, AvroType, Field, RecordSchema};
 use crate::state::{AstNode, find_node_at_position, position_in_range};

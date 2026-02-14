@@ -1,6 +1,7 @@
-use async_lsp::lsp_types::{Diagnostic, Location, Position, Range, Url};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+
+use async_lsp::lsp_types::{Diagnostic, Location, Position, Range, Url};
 
 use crate::schema::{AvroParser, AvroSchema, AvroType, AvroValidator, TypeResolver};
 

@@ -1,11 +1,12 @@
+use std::collections::HashMap;
+use std::path::PathBuf;
+use std::sync::Arc;
+
 use async_lsp::ResponseError;
 use async_lsp::lsp_types::{
     CompletionItem, Diagnostic, DocumentSymbol, Hover, Location, Position, PrepareRenameResponse,
     Range, SemanticToken, Url,
 };
-use std::collections::HashMap;
-use std::path::PathBuf;
-use std::sync::Arc;
 use tokio::sync::RwLock;
 
 use crate::schema::{
@@ -446,12 +447,13 @@ impl ServerState {
         let state = self.inner.read().await;
         let doc = state.documents.get(uri);
 
-        if doc.is_none() {
-            tracing::warn!("Document not found for {}", uri);
-            return None;
-        }
-
-        let doc = doc.unwrap();
+        let doc = match doc {
+            Some(d) => d,
+            None => {
+                tracing::warn!("Document not found for {}", uri);
+                return None;
+            }
+        };
 
         let schema = doc.schema.as_ref();
 
