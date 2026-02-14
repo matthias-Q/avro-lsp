@@ -562,17 +562,27 @@ pub fn get_quick_fixes_from_diagnostics(
     let mut actions = Vec::new();
 
     for diagnostic in diagnostics {
-        tracing::debug!("Processing diagnostic: {}", diagnostic.message);
+        tracing::info!("Processing diagnostic: {}", diagnostic.message);
+        tracing::info!("Diagnostic has data: {}", diagnostic.data.is_some());
+        if let Some(ref data) = diagnostic.data {
+            tracing::info!("Diagnostic data (raw): {:?}", data);
+        }
 
         // Try to deserialize structured error data from diagnostic
-        let structured_error: Option<SchemaError> = diagnostic
-            .data
-            .as_ref()
-            .and_then(|data| serde_json::from_value(data.clone()).ok());
+        let structured_error: Option<SchemaError> = diagnostic.data.as_ref().and_then(|data| {
+            let result = serde_json::from_value::<SchemaError>(data.clone());
+            match &result {
+                Ok(err) => tracing::info!("Successfully deserialized SchemaError: {:?}", err),
+                Err(e) => tracing::warn!("Failed to deserialize SchemaError: {}", e),
+            }
+            result.ok()
+        });
+
+        tracing::info!("Structured error is Some: {}", structured_error.is_some());
 
         if let Some(error) = structured_error {
             // Use structured error data - no string parsing needed!
-            tracing::debug!("Found structured error data: {:?}", error);
+            tracing::info!("Found structured error data, matching on type...");
 
             match error {
                 SchemaError::InvalidName {
@@ -724,7 +734,11 @@ pub fn get_quick_fixes_from_diagnostics(
             }
         } else {
             // Fallback to string parsing for backward compatibility or diagnostics without structured data
-            tracing::debug!("No structured error data, falling back to string parsing");
+            tracing::warn!(
+                "No structured error data for diagnostic: {}",
+                diagnostic.message
+            );
+            tracing::debug!("Falling back to string parsing");
             let msg = diagnostic
                 .message
                 .strip_prefix("Validation error: ")
@@ -753,6 +767,20 @@ pub fn get_quick_fixes_from_diagnostics(
             } else if msg.contains("logical type") && msg.contains("requires") {
                 if let Some(schema) = schema
                     && let Some(fix) = create_fix_logical_type(uri, schema, text, diagnostic)
+                {
+                    actions.push(fix);
+                }
+            } else if msg == "Nested unions are not allowed" {
+                tracing::debug!("Nested union error (string fallback)");
+                if let Some(fix) = create_fix_nested_union(uri, text, diagnostic) {
+                    actions.push(fix);
+                }
+            } else if let Some(remainder) = msg.strip_prefix("Duplicate type in union: ") {
+                tracing::debug!(
+                    "Duplicate union type error (string fallback): {}",
+                    remainder
+                );
+                if let Some(fix) = create_fix_duplicate_union_type(uri, text, diagnostic, remainder)
                 {
                     actions.push(fix);
                 }
@@ -905,9 +933,14 @@ fn create_fix_invalid_primitive_type(
 
 /// Create a quick fix for nested union errors
 /// Flattens nested union like [["null", "string"]] to ["null", "string"]
-fn create_fix_nested_union(uri: &Url, text: &str, _diagnostic: &Diagnostic) -> Option<CodeAction> {
+fn create_fix_nested_union(uri: &Url, text: &str, diagnostic: &Diagnostic) -> Option<CodeAction> {
     use async_lsp::lsp_types::{CodeActionKind, Position, Range, TextEdit, WorkspaceEdit};
     use std::collections::HashMap;
+
+    tracing::info!(
+        "create_fix_nested_union called for diagnostic at range {:?}",
+        diagnostic.range
+    );
 
     // Search through the entire text for nested union pattern [[...]]
     let lines: Vec<&str> = text.lines().collect();
@@ -915,6 +948,7 @@ fn create_fix_nested_union(uri: &Url, text: &str, _diagnostic: &Diagnostic) -> O
     for (line_idx, line) in lines.iter().enumerate() {
         // Look for [[ pattern
         if let Some(outer_start) = line.find("[[") {
+            tracing::info!("Found [[ at line {}, col {}", line_idx, outer_start);
             // Need to extract the complete [[ ]] array
             // Start from [[ and count brackets to find the matching ]]
             let from_bracket = &line[outer_start..];
@@ -934,18 +968,22 @@ fn create_fix_nested_union(uri: &Url, text: &str, _diagnostic: &Diagnostic) -> O
             }
 
             if end_pos == 0 {
+                tracing::info!("Could not find matching ]]");
                 continue;
             }
 
             let json_str = &from_bracket[..end_pos];
+            tracing::info!("Extracted JSON: {}", json_str);
 
             // Try to parse as JSON value
             if let Ok(value) = serde_json::from_str::<serde_json::Value>(json_str) {
+                tracing::info!("Parsed JSON successfully");
                 // Check if it's an array containing an array
                 if let Some(outer_arr) = value.as_array()
                     && outer_arr.len() == 1
                     && let Some(inner_arr) = outer_arr[0].as_array()
                 {
+                    tracing::info!("Found nested union pattern!");
                     // Found nested union! Flatten it
                     let flattened = serde_json::to_string(inner_arr).ok()?;
 
@@ -964,6 +1002,8 @@ fn create_fix_nested_union(uri: &Url, text: &str, _diagnostic: &Diagnostic) -> O
                         },
                     };
 
+                    tracing::info!("Creating action with range {:?}", replace_range);
+
                     let mut changes = HashMap::new();
                     changes.insert(
                         uri.clone(),
@@ -976,7 +1016,7 @@ fn create_fix_nested_union(uri: &Url, text: &str, _diagnostic: &Diagnostic) -> O
                     return Some(CodeAction {
                         title: "Flatten nested union".to_string(),
                         kind: Some(CodeActionKind::QUICKFIX),
-                        diagnostics: None,
+                        diagnostics: Some(vec![diagnostic.clone()]),
                         edit: Some(WorkspaceEdit {
                             changes: Some(changes),
                             ..Default::default()
@@ -984,11 +1024,24 @@ fn create_fix_nested_union(uri: &Url, text: &str, _diagnostic: &Diagnostic) -> O
                         is_preferred: Some(true),
                         ..Default::default()
                     });
+                } else {
+                    tracing::info!(
+                        "Not a nested union pattern: outer_arr len = {:?}, has inner array = {:?}",
+                        value.as_array().map(|a| a.len()),
+                        value
+                            .as_array()
+                            .and_then(|a| a.first())
+                            .and_then(|v| v.as_array())
+                            .is_some()
+                    );
                 }
+            } else {
+                tracing::info!("Failed to parse JSON");
             }
         }
     }
 
+    tracing::info!("No nested union fix created, returning None");
     None
 }
 

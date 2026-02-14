@@ -60,6 +60,27 @@ pub fn position_in_range(pos: Position, range: &Range) -> bool {
     true
 }
 
+/// Check if two ranges overlap
+fn ranges_overlap(r1: &Range, r2: &Range) -> bool {
+    // Ranges overlap if they have any position in common
+    // r1 ends before r2 starts: no overlap
+    if r1.end.line < r2.start.line {
+        return false;
+    }
+    if r1.end.line == r2.start.line && r1.end.character <= r2.start.character {
+        return false;
+    }
+    // r2 ends before r1 starts: no overlap
+    if r2.end.line < r1.start.line {
+        return false;
+    }
+    if r2.end.line == r1.start.line && r2.end.character <= r1.start.character {
+        return false;
+    }
+    // Otherwise they overlap
+    true
+}
+
 /// Find the most specific AST node at the given position
 pub fn find_node_at_position<'a>(
     schema: &'a AvroSchema,
@@ -446,13 +467,39 @@ impl ServerState {
             &context_diagnostics
         };
 
+        // Filter diagnostics to only those that overlap with the requested range
+        // This ensures code actions are only offered when cursor is within diagnostic range
+        let relevant_diagnostics: Vec<_> = diagnostics_to_use
+            .iter()
+            .filter(|diag| {
+                // Check if requested range overlaps with diagnostic range
+                let overlaps = ranges_overlap(&range, &diag.range);
+                tracing::info!(
+                    "Diagnostic {:?} range {:?} vs requested {:?} -> overlaps: {}",
+                    diag.message,
+                    diag.range,
+                    range,
+                    overlaps
+                );
+                overlaps
+            })
+            .cloned()
+            .collect();
+
+        tracing::info!(
+            "Filtered diagnostics: {} -> {} relevant to range {:?}",
+            diagnostics_to_use.len(),
+            relevant_diagnostics.len(),
+            range
+        );
+
         // Get quick fix code actions from diagnostics (diagnostic-based)
         // Note: This works even when schema is None (for parse errors)
         let mut actions = crate::handlers::code_actions::get_quick_fixes_from_diagnostics(
             schema,
             &doc.text,
             uri,
-            diagnostics_to_use,
+            &relevant_diagnostics,
         );
         tracing::info!("Quick fix actions: {}", actions.len());
 

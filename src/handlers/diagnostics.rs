@@ -112,6 +112,9 @@ pub fn parse_and_validate_with_workspace(
 
             // Serialize the SchemaError to JSON for the data field (for code actions)
             let error_data = serde_json::to_value(&e).ok();
+            if let Some(ref data) = error_data {
+                tracing::debug!("Diagnostic data being sent: {}", data);
+            }
 
             diagnostics.push(Diagnostic {
                 range: position_range,
@@ -188,7 +191,7 @@ pub fn parse_and_validate_with_workspace(
 
     if let Err(e) = validation_result {
         // Try to find the position of the error using AST
-        let position_range = find_error_position_in_ast(&e, &schema);
+        let position_range = find_error_position_in_ast(&e, &schema, text);
 
         // Serialize the SchemaError to JSON for the data field
         // This allows code actions to access structured error data
@@ -211,9 +214,9 @@ pub fn parse_and_validate_with_workspace(
 }
 
 /// Find the position of a validation error using AST
-fn find_error_position_in_ast(error: &SchemaError, schema: &AvroSchema) -> Range {
+fn find_error_position_in_ast(error: &SchemaError, schema: &AvroSchema, text: &str) -> Range {
     // Helper to search for error location in AST
-    fn search_type(avro_type: &AvroType, error: &SchemaError) -> Option<Range> {
+    fn search_type(avro_type: &AvroType, error: &SchemaError, text: &str) -> Option<Range> {
         match error {
             SchemaError::InvalidName { name, range, .. } => {
                 // If error already has a range, use it
@@ -253,17 +256,17 @@ fn find_error_position_in_ast(error: &SchemaError, schema: &AvroSchema) -> Range
                                 );
                                 return field.name_range;
                             }
-                            if let Some(range) = search_type(&field.field_type, error) {
+                            if let Some(range) = search_type(&field.field_type, error, text) {
                                 return Some(range);
                             }
                         }
                         None
                     }
-                    AvroType::Array(array) => search_type(&array.items, error),
-                    AvroType::Map(map) => search_type(&map.values, error),
+                    AvroType::Array(array) => search_type(&array.items, error, text),
+                    AvroType::Map(map) => search_type(&map.values, error, text),
                     AvroType::Union(types) => {
                         for t in types {
-                            if let Some(range) = search_type(t, error) {
+                            if let Some(range) = search_type(t, error, text) {
                                 return Some(range);
                             }
                         }
@@ -296,7 +299,7 @@ fn find_error_position_in_ast(error: &SchemaError, schema: &AvroSchema) -> Range
                         }
                         // Recurse into fields
                         for field in &record.fields {
-                            if let Some(range) = search_type(&field.field_type, error) {
+                            if let Some(range) = search_type(&field.field_type, error, text) {
                                 return Some(range);
                             }
                         }
@@ -325,11 +328,11 @@ fn find_error_position_in_ast(error: &SchemaError, schema: &AvroSchema) -> Range
                         }
                         None
                     }
-                    AvroType::Array(array) => search_type(&array.items, error),
-                    AvroType::Map(map) => search_type(&map.values, error),
+                    AvroType::Array(array) => search_type(&array.items, error, text),
+                    AvroType::Map(map) => search_type(&map.values, error, text),
                     AvroType::Union(types) => {
                         for t in types {
-                            if let Some(range) = search_type(t, error) {
+                            if let Some(range) = search_type(t, error, text) {
                                 return Some(range);
                             }
                         }
@@ -362,17 +365,17 @@ fn find_error_position_in_ast(error: &SchemaError, schema: &AvroSchema) -> Range
                     }
                     AvroType::Record(record) => {
                         for field in &record.fields {
-                            if let Some(range) = search_type(&field.field_type, error) {
+                            if let Some(range) = search_type(&field.field_type, error, text) {
                                 return Some(range);
                             }
                         }
                         None
                     }
-                    AvroType::Array(array) => search_type(&array.items, error),
-                    AvroType::Map(map) => search_type(&map.values, error),
+                    AvroType::Array(array) => search_type(&array.items, error, text),
+                    AvroType::Map(map) => search_type(&map.values, error, text),
                     AvroType::Union(types) => {
                         for t in types {
-                            if let Some(range) = search_type(t, error) {
+                            if let Some(range) = search_type(t, error, text) {
                                 return Some(range);
                             }
                         }
@@ -453,17 +456,17 @@ fn find_error_position_in_ast(error: &SchemaError, schema: &AvroSchema) -> Range
                         }
                         // Recurse into fields
                         for field in &record.fields {
-                            if let Some(range) = search_type(&field.field_type, error) {
+                            if let Some(range) = search_type(&field.field_type, error, text) {
                                 return Some(range);
                             }
                         }
                         None
                     }
-                    AvroType::Array(array) => search_type(&array.items, error),
-                    AvroType::Map(map) => search_type(&map.values, error),
+                    AvroType::Array(array) => search_type(&array.items, error, text),
+                    AvroType::Map(map) => search_type(&map.values, error, text),
                     AvroType::Union(types) => {
                         for t in types {
-                            if let Some(range) = search_type(t, error) {
+                            if let Some(range) = search_type(t, error, text) {
                                 return Some(range);
                             }
                         }
@@ -486,17 +489,17 @@ fn find_error_position_in_ast(error: &SchemaError, schema: &AvroSchema) -> Range
                     }
                     AvroType::Record(record) => {
                         for field in &record.fields {
-                            if let Some(range) = search_type(&field.field_type, error) {
+                            if let Some(range) = search_type(&field.field_type, error, text) {
                                 return Some(range);
                             }
                         }
                         None
                     }
-                    AvroType::Array(array) => search_type(&array.items, error),
-                    AvroType::Map(map) => search_type(&map.values, error),
+                    AvroType::Array(array) => search_type(&array.items, error, text),
+                    AvroType::Map(map) => search_type(&map.values, error, text),
                     AvroType::Union(types) => {
                         for t in types {
-                            if let Some(range) = search_type(t, error) {
+                            if let Some(range) = search_type(t, error, text) {
                                 return Some(range);
                             }
                         }
@@ -524,7 +527,7 @@ fn find_error_position_in_ast(error: &SchemaError, schema: &AvroSchema) -> Range
                         }
                         // Recurse into types
                         for t in types {
-                            if let Some(range) = search_type(t, error) {
+                            if let Some(range) = search_type(t, error, text) {
                                 return Some(range);
                             }
                         }
@@ -536,7 +539,19 @@ fn find_error_position_in_ast(error: &SchemaError, schema: &AvroSchema) -> Range
                             if let AvroType::Union(types) = &*field.field_type {
                                 // Check if this union contains another union
                                 if types.iter().any(|t| matches!(t, AvroType::Union(_))) {
-                                    // Found it - return field range as proxy for union range
+                                    // Found it - try to find the actual nested array [[...]]
+                                    // If we have field range, search for the nested union within it
+                                    if let Some(field_range) = field.range
+                                        && let Some(nested_range) =
+                                            find_nested_union_range(text, field_range)
+                                    {
+                                        tracing::debug!(
+                                            "Found nested union at precise range: {:?}",
+                                            nested_range
+                                        );
+                                        return Some(nested_range);
+                                    }
+                                    // Fallback to field range if we can't find precise range
                                     tracing::debug!(
                                         "Found nested union in field, returning field range: {:?}",
                                         field.range
@@ -545,7 +560,7 @@ fn find_error_position_in_ast(error: &SchemaError, schema: &AvroSchema) -> Range
                                 }
                             }
                             // Recurse into field type
-                            if let Some(range) = search_type(&field.field_type, error) {
+                            if let Some(range) = search_type(&field.field_type, error, text) {
                                 // If recursion found a nested union but couldn't get range,
                                 // use this field's range as proxy
                                 return field.range.or(Some(range));
@@ -562,7 +577,7 @@ fn find_error_position_in_ast(error: &SchemaError, schema: &AvroSchema) -> Range
                             // Return None to let parent provide context
                             return None;
                         }
-                        search_type(&array.items, error)
+                        search_type(&array.items, error, text)
                     }
                     AvroType::Map(map) => {
                         // Check if map values is a union with nested unions
@@ -573,7 +588,7 @@ fn find_error_position_in_ast(error: &SchemaError, schema: &AvroSchema) -> Range
                             // Return None to let parent provide context
                             return None;
                         }
-                        search_type(&map.values, error)
+                        search_type(&map.values, error, text)
                     }
                     _ => None,
                 }
@@ -587,6 +602,82 @@ fn find_error_position_in_ast(error: &SchemaError, schema: &AvroSchema) -> Range
                     return *range;
                 }
                 tracing::debug!("Searching for DuplicateUnionType: {}", type_signature);
+
+                // Helper to find the position of the duplicate type in text
+                let find_duplicate_in_union = |field_range: Range| -> Option<Range> {
+                    let start_line = field_range.start.line as usize;
+                    let lines: Vec<&str> = text.lines().collect();
+
+                    if start_line >= lines.len() {
+                        return None;
+                    }
+
+                    let line = lines[start_line];
+
+                    // Find the union array in this line
+                    if let Some(array_start) = line.find('[') {
+                        let from_bracket = &line[array_start..];
+                        let mut bracket_count = 0;
+                        let mut end_pos = 0;
+
+                        for (idx, ch) in from_bracket.char_indices() {
+                            if ch == '[' {
+                                bracket_count += 1;
+                            } else if ch == ']' {
+                                bracket_count -= 1;
+                                if bracket_count == 0 {
+                                    end_pos = idx + 1;
+                                    break;
+                                }
+                            }
+                        }
+
+                        if end_pos > 0 {
+                            let array_str = &from_bracket[..end_pos];
+
+                            // Convert type_signature to lowercase for matching
+                            // e.g., "Null" -> "null"
+                            let search_str = format!("\"{}\"", type_signature.to_lowercase());
+
+                            // Find all occurrences
+                            let mut first_pos = None;
+                            let mut second_pos = None;
+                            let mut search_offset = 0;
+
+                            while let Some(pos) = array_str[search_offset..].find(&search_str) {
+                                let abs_pos = search_offset + pos;
+                                if first_pos.is_none() {
+                                    first_pos = Some(abs_pos);
+                                    search_offset = abs_pos + search_str.len();
+                                } else {
+                                    second_pos = Some(abs_pos);
+                                    break;
+                                }
+                            }
+
+                            // If we found a second occurrence, return the range of the entire union array
+                            // This makes it easier to trigger code actions anywhere in the union
+                            if second_pos.is_some() {
+                                let char_start = array_start as u32;
+                                let char_end = (array_start + end_pos) as u32;
+
+                                return Some(Range {
+                                    start: Position {
+                                        line: start_line as u32,
+                                        character: char_start,
+                                    },
+                                    end: Position {
+                                        line: start_line as u32,
+                                        character: char_end,
+                                    },
+                                });
+                            }
+                        }
+                    }
+
+                    // Fallback to field range
+                    Some(field_range)
+                };
 
                 // Helper to check if a union has duplicate type signatures
                 let has_duplicates = |types: &[AvroType]| -> bool {
@@ -623,7 +714,7 @@ fn find_error_position_in_ast(error: &SchemaError, schema: &AvroSchema) -> Range
                         }
                         // Recurse into types
                         for t in types {
-                            if let Some(range) = search_type(t, error) {
+                            if let Some(range) = search_type(t, error, text) {
                                 return Some(range);
                             }
                         }
@@ -635,7 +726,17 @@ fn find_error_position_in_ast(error: &SchemaError, schema: &AvroSchema) -> Range
                             if let AvroType::Union(types) = &*field.field_type
                                 && has_duplicates(types)
                             {
-                                // Found it - return field range as proxy for union range
+                                // Found it - try to find the specific duplicate position
+                                if let Some(field_range) = field.range
+                                    && let Some(precise_range) =
+                                        find_duplicate_in_union(field_range)
+                                {
+                                    tracing::debug!(
+                                        "Found precise duplicate position: {:?}",
+                                        precise_range
+                                    );
+                                    return Some(precise_range);
+                                }
                                 tracing::debug!(
                                     "Found duplicate union type in field, returning field range: {:?}",
                                     field.range
@@ -643,7 +744,7 @@ fn find_error_position_in_ast(error: &SchemaError, schema: &AvroSchema) -> Range
                                 return field.range;
                             }
                             // Recurse into field type
-                            if let Some(range) = search_type(&field.field_type, error) {
+                            if let Some(range) = search_type(&field.field_type, error, text) {
                                 // If recursion found a duplicate union but couldn't get range,
                                 // use this field's range as proxy
                                 return field.range.or(Some(range));
@@ -660,7 +761,7 @@ fn find_error_position_in_ast(error: &SchemaError, schema: &AvroSchema) -> Range
                             // Return None to let parent provide context
                             return None;
                         }
-                        search_type(&array.items, error)
+                        search_type(&array.items, error, text)
                     }
                     AvroType::Map(map) => {
                         // Check if map values is a union with duplicates
@@ -671,7 +772,7 @@ fn find_error_position_in_ast(error: &SchemaError, schema: &AvroSchema) -> Range
                             // Return None to let parent provide context
                             return None;
                         }
-                        search_type(&map.values, error)
+                        search_type(&map.values, error, text)
                     }
                     _ => None,
                 }
@@ -699,7 +800,7 @@ fn find_error_position_in_ast(error: &SchemaError, schema: &AvroSchema) -> Range
     }
 
     // Search for the error in the AST
-    if let Some(range) = search_type(&schema.root, error) {
+    if let Some(range) = search_type(&schema.root, error, text) {
         tracing::debug!("Found error position: {:?}", range);
         return range;
     }
@@ -838,6 +939,54 @@ fn improve_error_message(original_msg: &str, pos: &Position, was_adjusted: bool)
     } else {
         format!("JSON parse error at {}", location)
     }
+}
+
+/// Find the precise range of a nested union [[...]] within a field range
+fn find_nested_union_range(text: &str, field_range: Range) -> Option<Range> {
+    let lines: Vec<&str> = text.lines().collect();
+
+    // Search within the field range for the nested union pattern [[
+    for line_idx in field_range.start.line..=field_range.end.line {
+        if let Some(line) = lines.get(line_idx as usize) {
+            // Look for [[ pattern which indicates nested union
+            if let Some(pos) = line.find("[[") {
+                // We want to highlight the OUTER array to make it easy to trigger
+                // the "flatten" code action anywhere in the union
+                let outer_start = pos;
+                let start_char = outer_start as u32;
+
+                // Find the matching ]] for the outer array
+                let mut bracket_count = 0;
+                let mut end_pos = outer_start;
+
+                for (idx, ch) in line[outer_start..].char_indices() {
+                    if ch == '[' {
+                        bracket_count += 1;
+                    } else if ch == ']' {
+                        bracket_count -= 1;
+                        if bracket_count == 0 {
+                            // Found the closing bracket for the outer array
+                            end_pos = outer_start + idx + 1;
+                            break;
+                        }
+                    }
+                }
+
+                return Some(Range {
+                    start: Position {
+                        line: line_idx,
+                        character: start_char,
+                    },
+                    end: Position {
+                        line: line_idx,
+                        character: end_pos as u32,
+                    },
+                });
+            }
+        }
+    }
+
+    None
 }
 
 #[cfg(test)]
