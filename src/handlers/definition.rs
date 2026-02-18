@@ -43,8 +43,17 @@ pub fn find_definition_with_workspace(
 
     // If not found locally and workspace is available, search workspace
     if let Some(workspace) = workspace {
-        // Look up the type in the workspace global registry
-        if let Some(type_info) = workspace.resolve_type(word, uri) {
+        // Extract namespace from the schema to use for resolution
+        let namespace = get_schema_namespace(&schema.root);
+
+        // Look up the type in the workspace with namespace context
+        let type_info = if let Some(ns) = namespace {
+            workspace.resolve_type_with_namespace(word, uri, Some(&ns))
+        } else {
+            workspace.resolve_type_with_namespace(word, uri, None)
+        };
+
+        if let Some(type_info) = type_info {
             // Type is defined in another file
             return Some(Location {
                 uri: type_info.defined_in.clone(),
@@ -55,6 +64,17 @@ pub fn find_definition_with_workspace(
 
     // Not a type reference we can navigate to
     None
+}
+
+/// Extract the namespace from a schema's root type
+fn get_schema_namespace(root_type: &crate::schema::AvroType) -> Option<String> {
+    use crate::schema::AvroType;
+    match root_type {
+        AvroType::Record(record) => record.namespace.clone(),
+        AvroType::Enum(enum_schema) => enum_schema.namespace.clone(),
+        AvroType::Fixed(fixed) => fixed.namespace.clone(),
+        _ => None,
+    }
 }
 
 #[cfg(test)]

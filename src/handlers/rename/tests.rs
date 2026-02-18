@@ -68,14 +68,6 @@ fn test_rename_cross_file() {
     let workspace_edit = edit.unwrap();
     let changes = workspace_edit.changes.unwrap();
 
-    println!(
-        "Files with changes: {:?}",
-        changes.keys().collect::<Vec<_>>()
-    );
-    println!("address_uri edits: {:?}", changes.get(&address_uri));
-    println!("user_uri edits: {:?}", changes.get(&user_uri));
-    println!("company_uri edits: {:?}", changes.get(&company_uri));
-
     assert!(
         changes.contains_key(&address_uri),
         "Should edit address.avsc"
@@ -88,11 +80,11 @@ fn test_rename_cross_file() {
 
     let user_edits = changes.get(&user_uri).unwrap();
     assert!(!user_edits.is_empty(), "User file should have edits");
-    assert_eq!(user_edits[0].new_text, "\"Location\"");
+    assert_eq!(user_edits[0].new_text, "Location");
 
     let company_edits = changes.get(&company_uri).unwrap();
     assert!(!company_edits.is_empty(), "Company file should have edits");
-    assert_eq!(company_edits[0].new_text, "\"Location\"");
+    assert_eq!(company_edits[0].new_text, "Location");
 }
 
 #[test]
@@ -175,11 +167,6 @@ fn test_rename_from_type_reference_in_different_file() {
     let workspace_edit = edit.unwrap();
     let changes = workspace_edit.changes.unwrap();
 
-    println!(
-        "Files with changes: {:?}",
-        changes.keys().collect::<Vec<_>>()
-    );
-
     assert!(
         changes.contains_key(&address_uri),
         "Should edit address.avsc (definition file), changes: {:?}",
@@ -200,8 +187,9 @@ fn test_rename_from_type_reference_in_different_file() {
 
     let user_edits = changes.get(&user_uri).unwrap();
     assert!(!user_edits.is_empty(), "User file should have edits");
+
     assert_eq!(
-        user_edits[0].new_text, "\"Location\"",
+        user_edits[0].new_text, "Location",
         "Should rename reference to Location"
     );
 }

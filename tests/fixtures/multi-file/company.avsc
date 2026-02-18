@@ -4,7 +4,7 @@
   "namespace": "com.example",
   "fields": [
     {"name": "name", "type": "string"},
-    {"name": "hqAddress", "type": "Address2"},
+    {"name": "hqAddress", "type": "Address"},
     {"name": "ceo", "type": "User"}
   ]
 }

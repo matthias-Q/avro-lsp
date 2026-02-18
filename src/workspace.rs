@@ -110,10 +110,18 @@ impl Workspace {
                 definition_range,
             };
 
-            // Register both simple and qualified names
-            self.global_types.insert(name.clone(), type_info.clone());
+            // Always register the fully qualified name
+            self.global_types
+                .insert(qualified_name.clone(), type_info.clone());
+
+            // For namespaced types, also register the simple name for type_exists() checks
+            // For null-namespace types (no namespace), we do NOT register the simple name
+            // in the global registry - they should only be visible within their own file
             if namespace.is_some() {
-                self.global_types.insert(qualified_name, type_info);
+                // Note: If multiple types have the same simple name in different namespaces,
+                // the last one registered wins here. This is OK because resolve_type()
+                // will do proper namespace-aware resolution.
+                self.global_types.insert(name.clone(), type_info);
             }
         }
     }
@@ -125,19 +133,79 @@ impl Workspace {
     }
 
     /// Resolve a type reference (check local schema first, then workspace)
+    /// Implements Avro namespace resolution rules:
+    /// 1. If name contains a dot (qualified), use as-is
+    /// 2. If name is simple, check local file first
+    /// 3. Then try current namespace + name
+    /// 4. Finally try null namespace (name only)
     #[allow(dead_code)] // Will be used for cross-file validation
     pub fn resolve_type(&self, name: &str, from_file: &Url) -> Option<&TypeInfo> {
-        // First check if it's in the same file's local types
-        if let Some(schema) = self.schemas.get(from_file)
-            && schema.named_types.contains_key(name)
-        {
-            // It's a local type, look it up in global registry
-            // (we still use global registry for consistent metadata)
+        // If name contains a dot, it's fully qualified - look it up directly
+        if name.contains('.') {
             return self.global_types.get(name);
         }
 
-        // Then check workspace global types
-        self.global_types.get(name)
+        // Try to get the namespace from the file in the workspace
+        let namespace = self
+            .schemas
+            .get(from_file)
+            .and_then(|schema| self.get_schema_namespace(&schema.root));
+
+        self.resolve_type_with_namespace(name, from_file, namespace.as_deref())
+    }
+
+    /// Resolve a type with an explicit namespace context
+    /// This is useful when the file hasn't been added to the workspace yet
+    pub fn resolve_type_with_namespace(
+        &self,
+        name: &str,
+        from_file: &Url,
+        namespace: Option<&str>,
+    ) -> Option<&TypeInfo> {
+        // If name contains a dot, it's fully qualified - look it up directly
+        if name.contains('.') {
+            return self.global_types.get(name);
+        }
+
+        // Check if it's defined locally in the same file (if file is in workspace)
+        if let Some(schema) = self.schemas.get(from_file) {
+            if schema.named_types.contains_key(name) {
+                // It's a local type - construct qualified name and look it up
+                let namespace = self.get_schema_namespace(&schema.root);
+                let qualified_name = if let Some(ns) = namespace {
+                    format!("{}.{}", ns, name)
+                } else {
+                    name.to_string()
+                };
+                return self.global_types.get(&qualified_name);
+            }
+        }
+
+        // Not local - use namespace-aware resolution
+        if let Some(ns) = namespace {
+            // Current file has a namespace - try qualified lookup
+            let qualified = format!("{}.{}", ns, name);
+            if let Some(type_info) = self.global_types.get(&qualified) {
+                return Some(type_info);
+            }
+            // No fallback - if the current file has a namespace and references
+            // a simple name, it must be in the same namespace per Avro rules
+            return None;
+        }
+
+        // Current file has no namespace - can only reference types in same file
+        // (already handled above in local check at line 171-182)
+        None
+    }
+
+    /// Extract the namespace from a schema's root type
+    fn get_schema_namespace(&self, root_type: &AvroType) -> Option<String> {
+        match root_type {
+            AvroType::Record(record) => record.namespace.clone(),
+            AvroType::Enum(enum_schema) => enum_schema.namespace.clone(),
+            AvroType::Fixed(fixed) => fixed.namespace.clone(),
+            _ => None,
+        }
     }
 
     /// Find all references to a type across the workspace

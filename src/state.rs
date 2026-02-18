@@ -262,7 +262,11 @@ impl ServerState {
 
                 // Skip hidden directories and common non-relevant directories
                 if let Some(name) = path.file_name().and_then(|n| n.to_str())
-                    && (name.starts_with('.') || name == "node_modules" || name == "target")
+                    && (name.starts_with('.')
+                        || name == "node_modules"
+                        || name == "target"
+                        || name == "tests"
+                        || name == "test")
                 {
                     continue;
                 }

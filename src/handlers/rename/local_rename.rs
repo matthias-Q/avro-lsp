@@ -68,12 +68,22 @@ pub fn collect_type_rename_edits(
 ) -> Vec<TextEdit> {
     let mut edits = Vec::new();
 
-    let ranges = collect_type_references(schema, old_name, true);
-
-    for range in ranges {
+    // Add definition edit if present (range includes quotes, so new_text needs quotes)
+    if let Some(named_type) = schema.named_types.get(old_name)
+        && let Some(range) = get_type_name_range(named_type)
+    {
         edits.push(TextEdit {
             range,
             new_text: format!("\"{}\"", new_name),
+        });
+    }
+
+    // Add reference edits (ranges exclude quotes, so new_text should NOT have quotes)
+    let reference_ranges = collect_type_references(schema, old_name, false);
+    for range in reference_ranges {
+        edits.push(TextEdit {
+            range,
+            new_text: new_name.to_string(),
         });
     }
 
