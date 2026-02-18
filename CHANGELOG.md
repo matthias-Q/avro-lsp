@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.1.18] - 2026-02-18
+
+### Miscellaneous Tasks
+
+- Clippy & formatting
+- *(release)* Release version v0.1.18
+
 ## [0.1.17] - 2026-02-18
 
 ### Bug Fixes
