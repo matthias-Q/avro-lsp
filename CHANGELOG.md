@@ -2,6 +2,22 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.1.16] - 2026-02-18
+
+### Bug Fixes
+
+- Warning message
+
+### Documentation
+
+- Update agents
+
+### Miscellaneous Tasks
+
+- Cargo update
+- Optimize for smaller build
+- *(release)* Release version v0.1.16
+
 ## [0.1.15] - 2026-02-18
 
 ### Features
