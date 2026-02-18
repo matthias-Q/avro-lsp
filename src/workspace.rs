@@ -168,17 +168,17 @@ impl Workspace {
         }
 
         // Check if it's defined locally in the same file (if file is in workspace)
-        if let Some(schema) = self.schemas.get(from_file) {
-            if schema.named_types.contains_key(name) {
-                // It's a local type - construct qualified name and look it up
-                let namespace = self.get_schema_namespace(&schema.root);
-                let qualified_name = if let Some(ns) = namespace {
-                    format!("{}.{}", ns, name)
-                } else {
-                    name.to_string()
-                };
-                return self.global_types.get(&qualified_name);
-            }
+        if let Some(schema) = self.schemas.get(from_file)
+            && schema.named_types.contains_key(name)
+        {
+            // It's a local type - construct qualified name and look it up
+            let namespace = self.get_schema_namespace(&schema.root);
+            let qualified_name = if let Some(ns) = namespace {
+                format!("{}.{}", ns, name)
+            } else {
+                name.to_string()
+            };
+            return self.global_types.get(&qualified_name);
         }
 
         // Not local - use namespace-aware resolution
@@ -567,7 +567,7 @@ mod tests {
   "fields": [
     {"name": "id", "type": "long"},
     {"name": "address", "type": "com.example.Address"}
-  ]
+   ]
 }"#;
 
         let diagnostics = parse_and_validate_with_workspace(user_schema, Some(&workspace));
@@ -575,6 +575,112 @@ mod tests {
             diagnostics.is_empty(),
             "Should validate qualified cross-namespace reference, but got: {:?}",
             diagnostics
+        );
+    }
+
+    #[test]
+    fn test_namespace_isolation_for_references() {
+        use crate::handlers::rename::find_references_with_workspace;
+        use async_lsp::lsp_types::Position;
+
+        let mut workspace = Workspace::new();
+
+        // Add Address with namespace com.example
+        let address_uri = Url::parse("file:///multi-file/address.avsc").unwrap();
+        let address_schema_text = r#"{
+  "type": "record",
+  "name": "Address",
+  "namespace": "com.example",
+  "fields": [{"name": "street", "type": "string"}]
+}"#;
+        workspace
+            .update_file(address_uri.clone(), address_schema_text.to_string())
+            .unwrap();
+
+        // Add User with namespace com.example referencing Address
+        let user_uri = Url::parse("file:///multi-file/user.avsc").unwrap();
+        let user_schema_text = r#"{
+  "type": "record",
+  "name": "User",
+  "namespace": "com.example",
+  "fields": [
+    {"name": "id", "type": "long"},
+    {"name": "address", "type": "Address"}
+  ]
+}"#;
+        workspace
+            .update_file(user_uri.clone(), user_schema_text.to_string())
+            .unwrap();
+
+        // Add another Address with NO namespace (should be isolated)
+        let isolated_address_uri = Url::parse("file:///other/address.avsc").unwrap();
+        let isolated_schema_text = r#"{
+  "type": "record",
+  "name": "Address",
+  "fields": [{"name": "street", "type": "string"}]
+}"#;
+        workspace
+            .update_file(
+                isolated_address_uri.clone(),
+                isolated_schema_text.to_string(),
+            )
+            .unwrap();
+
+        // Add Person with NO namespace referencing the null-namespace Address
+        let person_uri = Url::parse("file:///other/person.avsc").unwrap();
+        let person_schema_text = r#"{
+  "type": "record",
+  "name": "Person",
+  "fields": [
+    {"name": "name", "type": "string"},
+    {"name": "address", "type": "Address"}
+  ]
+}"#;
+        workspace
+            .update_file(person_uri.clone(), person_schema_text.to_string())
+            .unwrap();
+
+        // Parse schemas for find_references_with_workspace
+        let address_schema = AvroParser::new().parse(address_schema_text).unwrap();
+        let isolated_schema = AvroParser::new().parse(isolated_schema_text).unwrap();
+
+        // Find references to "Address" from com.example.Address (line 3, col 11)
+        let refs_namespaced = find_references_with_workspace(
+            &address_schema,
+            &address_uri,
+            Position::new(2, 11),
+            false,
+            Some(&workspace),
+        );
+
+        // Should find reference in user.avsc but NOT in person.avsc
+        let refs = refs_namespaced.expect("Should find references for namespaced Address");
+        assert_eq!(
+            refs.len(),
+            1,
+            "Should find exactly 1 reference to com.example.Address (in user.avsc), but found: {:#?}",
+            refs
+        );
+        assert_eq!(
+            refs[0].uri, user_uri,
+            "Reference should be in user.avsc, not person.avsc"
+        );
+
+        // Find references to null-namespace "Address" (line 3, col 11)
+        let refs_null = find_references_with_workspace(
+            &isolated_schema,
+            &isolated_address_uri,
+            Position::new(2, 11),
+            false,
+            Some(&workspace),
+        );
+
+        // Should NOT find cross-file references (null namespace is file-local only)
+        // But person.avsc has its own "Address" reference that won't resolve across files
+        assert!(
+            refs_null.is_none() || refs_null.as_ref().unwrap().is_empty(),
+            "Should find 0 cross-file references for null-namespace Address (file-local only), but found: {:#?}",
+            refs_null
         );
     }
 }

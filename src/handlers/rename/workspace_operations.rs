@@ -18,17 +18,17 @@ pub fn add_cross_file_rename_edits(
     };
 
     // Add rename edit for the definition if it's in another file
-    if type_info.defined_in != *current_uri {
-        if let Some(def_range) = type_info.definition_range {
-            let def_edit = TextEdit {
-                range: def_range,
-                new_text: format!("\"{}\"", new_name),
-            };
-            changes
-                .entry(type_info.defined_in.clone())
-                .or_default()
-                .push(def_edit);
-        }
+    if type_info.defined_in != *current_uri
+        && let Some(def_range) = type_info.definition_range
+    {
+        let def_edit = TextEdit {
+            range: def_range,
+            new_text: format!("\"{}\"", new_name),
+        };
+        changes
+            .entry(type_info.defined_in.clone())
+            .or_default()
+            .push(def_edit);
     }
 
     // Get all references to the simple name
@@ -42,13 +42,13 @@ pub fn add_cross_file_rename_edits(
         }
 
         // Only include references that resolve to the same qualified type
-        if let Some(resolved) = workspace.resolve_type(old_name, &location.uri) {
-            if resolved.qualified_name == type_info.qualified_name {
-                edits_by_file
-                    .entry(location.uri)
-                    .or_default()
-                    .push(location.range);
-            }
+        if let Some(resolved) = workspace.resolve_type(old_name, &location.uri)
+            && resolved.qualified_name == type_info.qualified_name
+        {
+            edits_by_file
+                .entry(location.uri)
+                .or_default()
+                .push(location.range);
         }
     }
 
