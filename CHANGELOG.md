@@ -2,6 +2,16 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.1.17] - 2026-02-18
+
+### Bug Fixes
+
+- Rename & workspace resolution
+
+### Miscellaneous Tasks
+
+- *(release)* Release version v0.1.17
+
 ## [0.1.16] - 2026-02-18
 
 ### Bug Fixes
