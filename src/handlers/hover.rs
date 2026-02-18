@@ -1,6 +1,6 @@
 use async_lsp::lsp_types::{Hover, HoverContents, MarkupContent, MarkupKind, Position};
 
-use crate::schema::{AvroSchema, AvroType, PrimitiveType};
+use crate::schema::{AvroSchema, AvroType, PrimitiveType, UnionSchema};
 
 /// Get the word at a specific position in the text
 pub fn get_word_at_position(text: &str, position: Position) -> Option<String> {
@@ -153,7 +153,7 @@ fn format_type_info(avro_type: &AvroType) -> String {
                 format_type_name(&map.values)
             )
         }
-        AvroType::Union(types) => {
+        AvroType::Union(UnionSchema { types, .. }) => {
             let type_names: Vec<String> = types.iter().map(format_type_name).collect();
             format!("**Union**: {}", type_names.join(" | "))
         }
@@ -199,7 +199,7 @@ pub fn format_type_name(avro_type: &AvroType) -> String {
         AvroType::Fixed(f) => format!("`{}`", f.name),
         AvroType::Array(a) => format!("array<{}>", format_type_name(&a.items)),
         AvroType::Map(m) => format!("map<{}>", format_type_name(&m.values)),
-        AvroType::Union(types) => {
+        AvroType::Union(UnionSchema { types, .. }) => {
             let names: Vec<String> = types.iter().map(format_type_name).collect();
             format!("[{}]", names.join(", "))
         }

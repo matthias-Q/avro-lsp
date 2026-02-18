@@ -1,6 +1,6 @@
 use async_lsp::lsp_types::{Position, Range};
 
-use crate::schema::{AvroSchema, AvroType, SchemaError};
+use crate::schema::{AvroSchema, AvroType, SchemaError, UnionSchema};
 
 use super::text_search::find_nested_union_range;
 
@@ -55,7 +55,7 @@ pub(super) fn find_error_position_in_ast(
                     }
                     AvroType::Array(array) => search_type(&array.items, error, text),
                     AvroType::Map(map) => search_type(&map.values, error, text),
-                    AvroType::Union(types) => {
+                    AvroType::Union(UnionSchema { types, .. }) => {
                         for t in types {
                             if let Some(range) = search_type(t, error, text) {
                                 return Some(range);
@@ -117,7 +117,7 @@ pub(super) fn find_error_position_in_ast(
                     }
                     AvroType::Array(array) => search_type(&array.items, error, text),
                     AvroType::Map(map) => search_type(&map.values, error, text),
-                    AvroType::Union(types) => {
+                    AvroType::Union(UnionSchema { types, .. }) => {
                         for t in types {
                             if let Some(range) = search_type(t, error, text) {
                                 return Some(range);
@@ -158,7 +158,7 @@ pub(super) fn find_error_position_in_ast(
                     }
                     AvroType::Array(array) => search_type(&array.items, error, text),
                     AvroType::Map(map) => search_type(&map.values, error, text),
-                    AvroType::Union(types) => {
+                    AvroType::Union(UnionSchema { types, .. }) => {
                         for t in types {
                             if let Some(range) = search_type(t, error, text) {
                                 return Some(range);
@@ -266,7 +266,7 @@ pub(super) fn find_error_position_in_ast(
                     }
                     AvroType::Array(array) => search_type(&array.items, error, text),
                     AvroType::Map(map) => search_type(&map.values, error, text),
-                    AvroType::Union(types) => {
+                    AvroType::Union(UnionSchema { types, .. }) => {
                         for t in types {
                             if let Some(range) = search_type(t, error, text) {
                                 return Some(range);
@@ -297,7 +297,7 @@ pub(super) fn find_error_position_in_ast(
                     }
                     AvroType::Array(array) => search_type(&array.items, error, text),
                     AvroType::Map(map) => search_type(&map.values, error, text),
-                    AvroType::Union(types) => {
+                    AvroType::Union(UnionSchema { types, .. }) => {
                         for t in types {
                             if let Some(range) = search_type(t, error, text) {
                                 return Some(range);
@@ -314,7 +314,7 @@ pub(super) fn find_error_position_in_ast(
                 }
                 tracing::debug!("Searching for NestedUnion");
                 match avro_type {
-                    AvroType::Union(types) => {
+                    AvroType::Union(UnionSchema { types, .. }) => {
                         for t in types {
                             if matches!(t, AvroType::Union(_)) {
                                 return None;
@@ -329,7 +329,7 @@ pub(super) fn find_error_position_in_ast(
                     }
                     AvroType::Record(record) => {
                         for field in &record.fields {
-                            if let AvroType::Union(types) = &*field.field_type
+                            if let AvroType::Union(UnionSchema { types, .. }) = &*field.field_type
                                 && types.iter().any(|t| matches!(t, AvroType::Union(_)))
                             {
                                 if let Some(field_range) = field.range
@@ -355,7 +355,7 @@ pub(super) fn find_error_position_in_ast(
                         None
                     }
                     AvroType::Array(array) => {
-                        if let AvroType::Union(types) = &*array.items
+                        if let AvroType::Union(UnionSchema { types, .. }) = &*array.items
                             && types.iter().any(|t| matches!(t, AvroType::Union(_)))
                         {
                             return None;
@@ -363,7 +363,7 @@ pub(super) fn find_error_position_in_ast(
                         search_type(&array.items, error, text)
                     }
                     AvroType::Map(map) => {
-                        if let AvroType::Union(types) = &*map.values
+                        if let AvroType::Union(UnionSchema { types, .. }) = &*map.values
                             && types.iter().any(|t| matches!(t, AvroType::Union(_)))
                         {
                             return None;
@@ -472,7 +472,7 @@ pub(super) fn find_error_position_in_ast(
                 };
 
                 match avro_type {
-                    AvroType::Union(types) => {
+                    AvroType::Union(UnionSchema { types, .. }) => {
                         if has_duplicates(types) {
                             return None;
                         }
@@ -485,7 +485,7 @@ pub(super) fn find_error_position_in_ast(
                     }
                     AvroType::Record(record) => {
                         for field in &record.fields {
-                            if let AvroType::Union(types) = &*field.field_type
+                            if let AvroType::Union(UnionSchema { types, .. }) = &*field.field_type
                                 && has_duplicates(types)
                             {
                                 if let Some(field_range) = field.range
@@ -511,7 +511,7 @@ pub(super) fn find_error_position_in_ast(
                         None
                     }
                     AvroType::Array(array) => {
-                        if let AvroType::Union(types) = &*array.items
+                        if let AvroType::Union(UnionSchema { types, .. }) = &*array.items
                             && has_duplicates(types)
                         {
                             return None;
@@ -519,7 +519,7 @@ pub(super) fn find_error_position_in_ast(
                         search_type(&array.items, error, text)
                     }
                     AvroType::Map(map) => {
-                        if let AvroType::Union(types) = &*map.values
+                        if let AvroType::Union(UnionSchema { types, .. }) = &*map.values
                             && has_duplicates(types)
                         {
                             return None;

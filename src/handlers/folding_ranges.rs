@@ -1,6 +1,6 @@
 use async_lsp::lsp_types::{FoldingRange, FoldingRangeKind};
 
-use crate::schema::{AvroSchema, AvroType};
+use crate::schema::{AvroSchema, AvroType, UnionSchema};
 
 /// Generate folding ranges for an Avro schema
 /// Allows collapsing records, enums, fixed types, arrays, and maps
@@ -71,7 +71,7 @@ fn collect_folding_ranges(avro_type: &AvroType, ranges: &mut Vec<FoldingRange>) 
             // Recurse into map values
             collect_folding_ranges(&map.values, ranges);
         }
-        AvroType::Union(types) => {
+        AvroType::Union(UnionSchema { types, .. }) => {
             // Recurse into union types
             for avro_type in types {
                 collect_folding_ranges(avro_type, ranges);

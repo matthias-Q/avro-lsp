@@ -3,7 +3,8 @@ use std::collections::{HashMap, HashSet};
 use regex::Regex;
 
 use super::super::error::{Result, SchemaError};
-use super::super::types::{AvroType, EnumSchema, FixedSchema, PrimitiveType, RecordSchema};
+use super::super::types::{AvroType, EnumSchema, FixedSchema, PrimitiveType, RecordSchema, UnionSchema};
+use super::super::warning::SchemaWarning;
 use super::default_validators::validate_default_value;
 use super::logical_type_validators::validate_logical_type_for_fixed;
 use super::name_validators::{validate_name_with_range, validate_namespace_with_range};
@@ -200,7 +201,7 @@ pub fn validate_type_with_resolver(
         AvroType::Map(map) => {
             validate_type_with_resolver(name_regex, &map.values, named_types, resolver)
         }
-        AvroType::Union(types) => {
+        AvroType::Union(UnionSchema { types, .. }) => {
             validate_union_with_resolver(name_regex, types, named_types, resolver)
         }
         AvroType::Fixed(fixed) => validate_fixed(name_regex, fixed),
@@ -224,4 +225,84 @@ fn type_signature(avro_type: &AvroType) -> String {
         AvroType::TypeRef(type_ref) => format!("ref:{}", type_ref.name),
         AvroType::Invalid(invalid) => format!("invalid:{}", invalid.type_name),
     }
+}
+
+/// Check if a type is a complex type (record, enum, fixed, array, map)
+fn is_complex_type(t: &AvroType) -> bool {
+    matches!(
+        t,
+        AvroType::Record(_)
+            | AvroType::Enum(_)
+            | AvroType::Fixed(_)
+            | AvroType::Array(_)
+            | AvroType::Map(_)
+    )
+}
+
+/// Check if a type is null
+fn is_null_type(t: &AvroType) -> bool {
+    matches!(t, AvroType::Primitive(PrimitiveType::Null))
+}
+
+/// Get a human-readable description of a type
+fn type_description(t: &AvroType) -> String {
+    match t {
+        AvroType::Record(r) => format!("record:{}", r.name),
+        AvroType::Enum(e) => format!("enum:{}", e.name),
+        AvroType::Fixed(f) => format!("fixed:{}", f.name),
+        AvroType::Array(_) => "array".to_string(),
+        AvroType::Map(_) => "map".to_string(),
+        _ => "complex type".to_string(),
+    }
+}
+
+/// Check for unions with multiple complex types
+/// Returns warnings for unions that contain 2+ complex types
+pub fn check_union_complexity_warnings(union: &UnionSchema) -> Vec<SchemaWarning> {
+    let mut warnings = Vec::new();
+    let types = &union.types;
+
+    let complex_types: Vec<_> = types.iter().filter(|t| is_complex_type(t)).collect();
+
+    // Simple nullable pattern: ["null", <complex_type>] - OK, no warning
+    let is_simple_nullable =
+        types.len() == 2 && types.iter().any(|t| is_null_type(t)) && complex_types.len() == 1;
+
+    // Warn if:
+    // - 2+ complex types (regardless of null)
+    // - OR complex types that aren't in simple nullable pattern
+    if complex_types.len() >= 2 {
+        let complex_type_names: Vec<String> =
+            complex_types.iter().map(|t| type_description(t)).collect();
+
+        let message = format!(
+            "Union contains multiple complex types ({}). \
+            Consider using separate fields or a discriminator pattern.",
+            complex_type_names.join(", ")
+        );
+
+        warnings.push(SchemaWarning::UnionWithMultipleComplexTypes {
+            complex_type_names,
+            range: union.range, // Use range from UnionSchema
+            message,
+        });
+    } else if !is_simple_nullable && !complex_types.is_empty() && types.len() > 2 {
+        // Multiple primitives + complex type (not simple nullable)
+        let complex_type_names: Vec<String> =
+            complex_types.iter().map(|t| type_description(t)).collect();
+
+        let message = format!(
+            "Union contains complex types ({}) mixed with multiple other types, \
+            which may not be supported by Apache Iceberg.",
+            complex_type_names.join(", ")
+        );
+
+        warnings.push(SchemaWarning::UnionWithMultipleComplexTypes {
+            complex_type_names,
+            range: union.range, // Use range from UnionSchema
+            message,
+        });
+    }
+
+    warnings
 }

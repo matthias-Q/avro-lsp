@@ -5,7 +5,7 @@ use regex::Regex;
 use serde_json::Value;
 
 use super::super::error::{Result, SchemaError};
-use super::super::types::{AvroType, PrimitiveType};
+use super::super::types::{AvroType, PrimitiveType, UnionSchema};
 
 pub fn validate_default_value(
     name_regex: &Regex,
@@ -28,7 +28,7 @@ pub fn validate_default_value(
         AvroType::Array(_) => validate_array_default(name_regex, default, field_range),
         AvroType::Map(_) => validate_map_default(name_regex, default, field_range),
         AvroType::Fixed(_) => validate_fixed_default(name_regex, default, field_range),
-        AvroType::Union(types) => {
+        AvroType::Union(UnionSchema { types, .. }) => {
             validate_union_default(name_regex, default, types, named_types, field_range)
         }
         AvroType::TypeRef(type_ref) => validate_typeref_default(

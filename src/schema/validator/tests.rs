@@ -209,3 +209,101 @@ fn test_validate_all_long_logical_types() {
         );
     }
 }
+
+#[test]
+fn test_union_with_two_records_warns() {
+    let validator = AvroValidator::new();
+    let mut parser = AvroParser::new();
+    let json = r#"{
+        "type": "record",
+        "name": "Container",
+        "fields": [{
+            "name": "content",
+            "type": [
+                {
+                    "type": "record",
+                    "name": "Person",
+                    "fields": [{"name": "name", "type": "string"}]
+                },
+                {
+                    "type": "record",
+                    "name": "Company",
+                    "fields": [{"name": "company_name", "type": "string"}]
+                }
+            ]
+        }]
+    }"#;
+    let schema = parser.parse(json).unwrap();
+    
+    // Should validate successfully (not an error)
+    assert!(validator.validate(&schema).is_ok());
+    
+    // But should produce a warning
+    let warnings = validator.collect_warnings(&schema);
+    assert_eq!(warnings.len(), 1);
+    assert!(matches!(
+        warnings[0],
+        crate::schema::warning::SchemaWarning::UnionWithMultipleComplexTypes { .. }
+    ));
+}
+
+#[test]
+fn test_simple_nullable_no_warning() {
+    let validator = AvroValidator::new();
+    let mut parser = AvroParser::new();
+    let json = r#"{
+        "type": "record",
+        "name": "Test",
+        "fields": [{
+            "name": "nullable_record",
+            "type": ["null", {
+                "type": "record",
+                "name": "Person",
+                "fields": [{"name": "name", "type": "string"}]
+            }]
+        }]
+    }"#;
+    let schema = parser.parse(json).unwrap();
+    
+    let warnings = validator.collect_warnings(&schema);
+    assert!(warnings.is_empty(), "Simple nullable should not produce warnings");
+}
+
+#[test]
+fn test_union_with_array_and_record_warns() {
+    let validator = AvroValidator::new();
+    let mut parser = AvroParser::new();
+    let json = r#"{
+        "type": "record",
+        "name": "Test",
+        "fields": [{
+            "name": "complex_union",
+            "type": [
+                {"type": "array", "items": "string"},
+                {"type": "record", "name": "Person", "fields": [{"name": "name", "type": "string"}]}
+            ]
+        }]
+    }"#;
+    let schema = parser.parse(json).unwrap();
+    
+    let warnings = validator.collect_warnings(&schema);
+    assert_eq!(warnings.len(), 1);
+}
+
+#[test]
+fn test_union_of_primitives_no_warning() {
+    let validator = AvroValidator::new();
+    let mut parser = AvroParser::new();
+    let json = r#"{
+        "type": "record",
+        "name": "Test",
+        "fields": [{
+            "name": "multi_primitive",
+            "type": ["null", "int", "long", "string"]
+        }]
+    }"#;
+    let schema = parser.parse(json).unwrap();
+    
+    let warnings = validator.collect_warnings(&schema);
+    assert!(warnings.is_empty(), "Union of primitives should not warn");
+}

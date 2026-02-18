@@ -9,6 +9,7 @@ use regex::Regex;
 
 use super::error::Result;
 use super::types::{AvroSchema, AvroType, RecordSchema};
+use super::warning::SchemaWarning;
 pub use complex_validators::TypeResolver;
 
 struct LocalTypeResolver<'a> {
@@ -104,6 +105,40 @@ impl AvroValidator {
         range: Option<async_lsp::lsp_types::Range>,
     ) -> Result<()> {
         name_validators::validate_name_with_range(name, range, &self.name_regex)
+    }
+
+    /// Collect warnings from a schema (e.g., unions with complex types)
+    pub fn collect_warnings(&self, schema: &AvroSchema) -> Vec<SchemaWarning> {
+        let mut warnings = Vec::new();
+        self.collect_warnings_from_type(&schema.root, &mut warnings);
+        warnings
+    }
+
+    fn collect_warnings_from_type(&self, avro_type: &AvroType, warnings: &mut Vec<SchemaWarning>) {
+        match avro_type {
+            AvroType::Union(union_schema) => {
+                // Check for complex union patterns
+                warnings.extend(complex_validators::check_union_complexity_warnings(union_schema));
+                // Recursively check nested types
+                for t in &union_schema.types {
+                    self.collect_warnings_from_type(t, warnings);
+                }
+            }
+            AvroType::Record(record) => {
+                for field in &record.fields {
+                    self.collect_warnings_from_type(&field.field_type, warnings);
+                }
+            }
+            AvroType::Array(array) => {
+                self.collect_warnings_from_type(&array.items, warnings);
+            }
+            AvroType::Map(map) => {
+                self.collect_warnings_from_type(&map.values, warnings);
+            }
+            _ => {
+                // Primitives, enums, fixed, etc. - no nested types to check
+            }
+        }
     }
 
     #[allow(dead_code)]

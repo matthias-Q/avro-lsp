@@ -11,6 +11,8 @@ pub struct AvroSchema {
     pub parse_errors: Vec<super::error::SchemaError>,
     /// Semantic tokens captured during parsing
     pub semantic_tokens: Vec<SemanticTokenData>,
+    /// Warnings collected during validation (non-blocking issues)
+    pub warnings: Vec<super::warning::SchemaWarning>,
 }
 
 /// Represents an Avro type
@@ -23,7 +25,7 @@ pub enum AvroType {
     Enum(EnumSchema),
     Array(ArraySchema),
     Map(MapSchema),
-    Union(Vec<AvroType>),
+    Union(UnionSchema),
     Fixed(FixedSchema),
     /// Reference to a named type by string
     TypeRef(TypeRefSchema),
@@ -229,6 +231,34 @@ pub struct MapSchema {
     pub values: Box<AvroType>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub default: Option<HashMap<String, serde_json::Value>>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct UnionSchema {
+    pub types: Vec<AvroType>,
+    pub range: Option<Range>,
+}
+
+// Manual Serialize/Deserialize to treat as transparent (serialize/deserialize only the types vec)
+impl serde::Serialize for UnionSchema {
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        self.types.serialize(serializer)
+    }
+}
+
+impl<'de> serde::Deserialize<'de> for UnionSchema {
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        Ok(UnionSchema {
+            types: Vec::<AvroType>::deserialize(deserializer)?,
+            range: None,
+        })
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

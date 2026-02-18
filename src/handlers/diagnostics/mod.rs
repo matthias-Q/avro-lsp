@@ -7,12 +7,14 @@ mod error_conversion;
 mod json_position;
 mod position_finder;
 mod text_search;
+mod warning_conversion;
 
 #[cfg(test)]
 mod tests;
 
 use error_conversion::convert_parse_error;
 use position_finder::find_error_position_in_ast;
+use warning_conversion::convert_warning;
 
 /// Parse and validate Avro schema text, returning diagnostics
 /// If workspace is provided, cross-file type references will be validated
@@ -66,6 +68,12 @@ pub fn parse_and_validate_with_workspace(
             tags: None,
             data: error_data,
         });
+    }
+
+    // Collect and add warnings (non-blocking issues)
+    let warnings = validator.collect_warnings(&schema);
+    for warning in &warnings {
+        diagnostics.push(convert_warning(warning));
     }
 
     diagnostics

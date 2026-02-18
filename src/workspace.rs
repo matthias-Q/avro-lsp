@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 
 use async_lsp::lsp_types::{Diagnostic, Location, Position, Range, Url};
 
-use crate::schema::{AvroParser, AvroSchema, AvroType, AvroValidator, TypeResolver};
+use crate::schema::{AvroParser, AvroSchema, AvroType, AvroValidator, TypeResolver, UnionSchema};
 
 /// Information about a named type definition
 #[derive(Debug, Clone)]
@@ -194,7 +194,7 @@ impl Workspace {
             AvroType::Map(map) => {
                 self.collect_type_refs(&map.values, target_name, uri, locations);
             }
-            AvroType::Union(types) => {
+            AvroType::Union(UnionSchema { types, .. }) => {
                 for t in types {
                     self.collect_type_refs(t, target_name, uri, locations);
                 }

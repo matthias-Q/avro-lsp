@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use super::error::{Result, SchemaError};
-use super::json_parser::{JsonValue, parse_json};
+use super::json_parser::{parse_json, JsonValue};
 use super::types::*;
 
 pub struct AvroParser {
@@ -52,6 +52,7 @@ impl AvroParser {
             named_types: self.named_types.clone(),
             parse_errors: self.errors.clone(),
             semantic_tokens: self.tokens.clone(),
+            warnings: Vec::new(), // Warnings are added during validation
         })
     }
 
@@ -103,9 +104,12 @@ impl AvroParser {
             }
 
             // Union type as array: ["null", "string"]
-            JsonValue::Array(arr, _range) => {
+            JsonValue::Array(arr, range) => {
                 let types: Result<Vec<_>> = arr.iter().map(|v| self.parse_type(v)).collect();
-                Ok(AvroType::Union(types?))
+                Ok(AvroType::Union(UnionSchema {
+                    types: types?,
+                    range: Some(*range),
+                }))
             }
 
             // Complex type as object
@@ -1130,7 +1134,7 @@ mod tests {
         let mut parser = AvroParser::new();
         let json = r#"["null", "string"]"#;
         let schema = parser.parse(json).unwrap();
-        if let AvroType::Union(types) = schema.root {
+        if let AvroType::Union(UnionSchema { types, .. }) = schema.root {
             assert_eq!(types.len(), 2);
         } else {
             panic!("Expected union type");
@@ -1155,7 +1159,7 @@ mod tests {
             assert_eq!(record.fields.len(), 1);
 
             // Check the field type - should be Union
-            if let AvroType::Union(types) = &*record.fields[0].field_type {
+            if let AvroType::Union(UnionSchema { types, .. }) = &*record.fields[0].field_type {
                 assert_eq!(types.len(), 2);
             } else {
                 panic!(

@@ -1,7 +1,7 @@
 use async_lsp::lsp_types::{Position, Range};
 
 use super::builder::AVRO_NAME_REGEX;
-use crate::schema::{AvroSchema, AvroType};
+use crate::schema::{AvroSchema, AvroType, UnionSchema};
 
 /// Check if an AvroType is a Union
 pub(super) fn is_union(avro_type: &AvroType) -> bool {
@@ -34,7 +34,7 @@ pub(super) fn get_default_for_type(avro_type: &AvroType) -> Option<String> {
         },
         AvroType::Array(_) => Some("[]".to_string()),
         AvroType::Map(_) => Some("{}".to_string()),
-        AvroType::Union(types) => types.first().and_then(get_default_for_type),
+        AvroType::Union(UnionSchema { types, .. }) => types.first().and_then(get_default_for_type),
         _ => None,
     }
 }

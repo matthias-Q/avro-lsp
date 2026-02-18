@@ -10,7 +10,7 @@ use async_lsp::lsp_types::{
 use tokio::sync::RwLock;
 
 use crate::schema::{
-    AvroParser, AvroSchema, AvroType, EnumSchema, Field, FixedSchema, RecordSchema,
+    AvroParser, AvroSchema, AvroType, EnumSchema, Field, FixedSchema, RecordSchema, UnionSchema,
 };
 use crate::workspace::Workspace;
 
@@ -162,7 +162,7 @@ fn find_node_in_type<'a>(
             // Recursively check the map's values type
             find_node_in_type(&map.values, position, position_in_range)
         }
-        AvroType::Union(types) => {
+        AvroType::Union(UnionSchema { types, .. }) => {
             // Check each type in the union
             for avro_type in types {
                 if let Some(node) = find_node_in_type(avro_type, position, position_in_range) {

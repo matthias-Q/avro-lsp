@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use async_lsp::ResponseError;
 use async_lsp::lsp_types::{Range, TextEdit, Url, WorkspaceEdit};
 
-use crate::schema::{AvroSchema, AvroType};
+use crate::schema::{AvroSchema, AvroType, UnionSchema};
 
 use super::node_matcher::{RenameInfo, SymbolType};
 use super::validation;
@@ -126,7 +126,7 @@ fn collect_type_references_in_type(avro_type: &AvroType, type_name: &str, ranges
         AvroType::Map(map) => {
             collect_type_references_in_type(&map.values, type_name, ranges);
         }
-        AvroType::Union(types) => {
+        AvroType::Union(UnionSchema { types, .. }) => {
             for t in types {
                 collect_type_references_in_type(t, type_name, ranges);
             }

@@ -1,6 +1,6 @@
 use async_lsp::lsp_types::{InlayHint, InlayHintLabel, Position};
 
-use crate::schema::{AvroSchema, AvroType, PrimitiveType};
+use crate::schema::{AvroSchema, AvroType, PrimitiveType, UnionSchema};
 
 /// Generate inlay hints for all fields in the schema
 pub fn generate_inlay_hints(schema: &AvroSchema, _text: &str) -> Vec<InlayHint> {
@@ -42,7 +42,7 @@ fn collect_field_hints(avro_type: &AvroType, hints: &mut Vec<InlayHint>) {
         AvroType::Map(map) => {
             collect_field_hints(&map.values, hints);
         }
-        AvroType::Union(types) => {
+        AvroType::Union(UnionSchema { types, .. }) => {
             for t in types {
                 collect_field_hints(t, hints);
             }
@@ -65,7 +65,7 @@ fn format_type_hint(avro_type: &AvroType) -> String {
                 base
             }
         }
-        AvroType::Union(types) => {
+        AvroType::Union(UnionSchema { types, .. }) => {
             let formatted: Vec<String> = types.iter().map(format_type_hint).collect();
             formatted.join(" | ")
         }
@@ -123,17 +123,23 @@ mod tests {
 
     #[test]
     fn test_format_union() {
-        let union = AvroType::Union(vec![
-            AvroType::Primitive(PrimitiveType::Null),
-            AvroType::Primitive(PrimitiveType::String),
-        ]);
+        let union = AvroType::Union(UnionSchema {
+            types: vec![
+                AvroType::Primitive(PrimitiveType::Null),
+                AvroType::Primitive(PrimitiveType::String),
+            ],
+            range: None,
+        });
         assert_eq!(format_type_hint(&union), "null | string");
 
-        let union3 = AvroType::Union(vec![
-            AvroType::Primitive(PrimitiveType::String),
-            AvroType::Primitive(PrimitiveType::Long),
-            AvroType::Primitive(PrimitiveType::Null),
-        ]);
+        let union3 = AvroType::Union(UnionSchema {
+            types: vec![
+                AvroType::Primitive(PrimitiveType::String),
+                AvroType::Primitive(PrimitiveType::Long),
+                AvroType::Primitive(PrimitiveType::Null),
+            ],
+            range: None,
+        });
         assert_eq!(format_type_hint(&union3), "string | long | null");
     }
 
@@ -149,10 +155,13 @@ mod tests {
         // Array with union items
         let array_union = AvroType::Array(ArraySchema {
             type_name: "array".to_string(),
-            items: Box::new(AvroType::Union(vec![
-                AvroType::Primitive(PrimitiveType::Null),
-                AvroType::Primitive(PrimitiveType::Int),
-            ])),
+            items: Box::new(AvroType::Union(UnionSchema {
+                types: vec![
+                    AvroType::Primitive(PrimitiveType::Null),
+                    AvroType::Primitive(PrimitiveType::Int),
+                ],
+                range: None,
+            })),
             default: None,
         });
         assert_eq!(format_type_hint(&array_union), "array<null | int>");
@@ -170,10 +179,13 @@ mod tests {
         // Map with union values
         let map_union = AvroType::Map(MapSchema {
             type_name: "map".to_string(),
-            values: Box::new(AvroType::Union(vec![
-                AvroType::Primitive(PrimitiveType::Null),
-                AvroType::Primitive(PrimitiveType::Long),
-            ])),
+            values: Box::new(AvroType::Union(UnionSchema {
+                types: vec![
+                    AvroType::Primitive(PrimitiveType::Null),
+                    AvroType::Primitive(PrimitiveType::Long),
+                ],
+                range: None,
+            })),
             default: None,
         });
         assert_eq!(format_type_hint(&map_union), "map<null | long>");
@@ -280,10 +292,13 @@ mod tests {
 
         let field2 = Field {
             name: "email".to_string(),
-            field_type: Box::new(AvroType::Union(vec![
-                AvroType::Primitive(PrimitiveType::Null),
-                AvroType::Primitive(PrimitiveType::String),
-            ])),
+            field_type: Box::new(AvroType::Union(UnionSchema {
+                types: vec![
+                    AvroType::Primitive(PrimitiveType::Null),
+                    AvroType::Primitive(PrimitiveType::String),
+                ],
+                range: None,
+            })),
             doc: None,
             default: None,
             order: None,
@@ -331,6 +346,7 @@ mod tests {
             named_types: HashMap::new(),
             parse_errors: Vec::new(),
             semantic_tokens: Vec::new(),
+            warnings: Vec::new(),
         };
 
         let hints = generate_inlay_hints(&schema, "");
@@ -363,10 +379,13 @@ mod tests {
             type_name: "array".to_string(),
             items: Box::new(AvroType::Map(MapSchema {
                 type_name: "map".to_string(),
-                values: Box::new(AvroType::Union(vec![
-                    AvroType::Primitive(PrimitiveType::Null),
-                    AvroType::Primitive(PrimitiveType::String),
-                ])),
+                values: Box::new(AvroType::Union(UnionSchema {
+                    types: vec![
+                        AvroType::Primitive(PrimitiveType::Null),
+                        AvroType::Primitive(PrimitiveType::String),
+                    ],
+                    range: None,
+                })),
                 default: None,
             })),
             default: None,

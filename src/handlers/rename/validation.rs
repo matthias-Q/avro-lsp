@@ -1,6 +1,6 @@
 use async_lsp::ResponseError;
 
-use crate::schema::{AvroSchema, AvroType, Field, RecordSchema};
+use crate::schema::{AvroSchema, AvroType, Field, RecordSchema, UnionSchema};
 
 pub fn validate_avro_name(name: &str) -> Result<(), ResponseError> {
     let name_regex = regex::Regex::new(r"^[A-Za-z_][A-Za-z0-9_]*$").unwrap();
@@ -55,7 +55,7 @@ pub fn check_field_name_conflict(
             }
             AvroType::Array(array) => find_parent_record(&array.items, target_field),
             AvroType::Map(map) => find_parent_record(&map.values, target_field),
-            AvroType::Union(types) => {
+            AvroType::Union(UnionSchema { types, .. }) => {
                 for t in types {
                     if let Some(parent) = find_parent_record(t, target_field) {
                         return Some(parent);
