@@ -26,7 +26,12 @@ pub enum JsonValue {
         content_range: Range, // Without quotes: value
     },
     Array(Vec<JsonValue>, Range),
-    Object(indexmap::IndexMap<String, (Range, JsonValue)>, Range),
+    Object {
+        map: indexmap::IndexMap<String, (Range, JsonValue)>,
+        range: Range,
+        /// List of ALL key-range pairs (including duplicates)
+        all_keys: Vec<(String, Range)>,
+    },
 }
 
 impl JsonValue {
@@ -37,7 +42,7 @@ impl JsonValue {
             JsonValue::Number(_, r) => *r,
             JsonValue::String { full_range, .. } => *full_range,
             JsonValue::Array(_, r) => *r,
-            JsonValue::Object(_, r) => *r,
+            JsonValue::Object { range, .. } => *range,
         }
     }
 
@@ -62,7 +67,7 @@ impl JsonValue {
 
     pub fn as_object(&self) -> Option<&indexmap::IndexMap<String, (Range, JsonValue)>> {
         match self {
-            JsonValue::Object(o, _) => Some(o),
+            JsonValue::Object { map, .. } => Some(map),
             _ => None,
         }
     }
@@ -229,12 +234,24 @@ fn parse_object(input: Span) -> IResult<Span, JsonValue> {
     let range = make_range(start, input);
 
     // Convert to IndexMap with key ranges
+    // Store ALL pairs (including duplicates) for later validation
     let mut map = indexmap::IndexMap::new();
+    let mut all_keys = Vec::new();
+
     for (key, key_range, value) in pairs {
-        map.insert(key, (key_range, value));
+        all_keys.push((key.clone(), key_range));
+        // Keep first occurrence of each key
+        map.entry(key).or_insert((key_range, value));
     }
 
-    Ok((input, JsonValue::Object(map, range)))
+    Ok((
+        input,
+        JsonValue::Object {
+            map,
+            range,
+            all_keys,
+        },
+    ))
 }
 
 /// Main entry point: parse JSON with position tracking
@@ -415,10 +432,10 @@ mod tests {
     fn test_parse_object() {
         let result = parse_json(r#"{"name": "test", "age": 42}"#).unwrap();
         match result {
-            JsonValue::Object(obj, _) => {
-                assert_eq!(obj.len(), 2);
-                assert!(obj.contains_key("name"));
-                assert!(obj.contains_key("age"));
+            JsonValue::Object { map, .. } => {
+                assert_eq!(map.len(), 2);
+                assert!(map.contains_key("name"));
+                assert!(map.contains_key("age"));
             }
             _ => panic!("Expected object"),
         }

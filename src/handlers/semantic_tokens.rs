@@ -46,7 +46,7 @@ pub fn build_semantic_tokens(schema: &AvroSchema) -> Vec<SemanticToken> {
             };
 
             // Calculate token length from range
-            let length = (token_data.range.end.character - token_data.range.start.character) as u32;
+            let length = token_data.range.end.character - token_data.range.start.character;
 
             Token {
                 line: token_data.range.start.line,

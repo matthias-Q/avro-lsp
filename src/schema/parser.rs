@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use super::error::{Result, SchemaError};
-use super::json_parser::{parse_json, JsonValue};
+use super::json_parser::{JsonValue, parse_json};
 use super::types::*;
 
 pub struct AvroParser {
@@ -41,6 +41,9 @@ impl AvroParser {
             message: format!("JSON parse error: {}", e),
             range: None,
         })?;
+
+        // Check for duplicate keys in the JSON structure
+        self.check_duplicate_keys(&json);
 
         let root = self.parse_type(&json)?;
 
@@ -106,7 +109,7 @@ impl AvroParser {
             }
 
             // Complex type as object
-            JsonValue::Object(obj, _range) => {
+            JsonValue::Object { map: obj, .. } => {
                 let type_name = obj
                     .get("type")
                     .and_then(|(_, v)| v.as_string())
@@ -958,12 +961,51 @@ impl AvroParser {
                     arr.iter().map(|v| self.json_value_to_serde(v)).collect();
                 vals.map(serde_json::Value::Array)
             }
-            JsonValue::Object(obj, _) => {
+            JsonValue::Object { map: obj, .. } => {
                 let map: Option<serde_json::Map<String, serde_json::Value>> = obj
                     .iter()
                     .map(|(k, (_range, v))| self.json_value_to_serde(v).map(|val| (k.clone(), val)))
                     .collect();
                 map.map(serde_json::Value::Object)
+            }
+        }
+    }
+
+    /// Check for duplicate keys in JSON objects recursively
+    fn check_duplicate_keys(&mut self, value: &JsonValue) {
+        match value {
+            JsonValue::Object {
+                map: obj, all_keys, ..
+            } => {
+                // Check for duplicates using the all_keys list
+                let mut seen_keys: HashMap<String, async_lsp::lsp_types::Range> = HashMap::new();
+
+                for (key, key_range) in all_keys {
+                    if let Some(first_range) = seen_keys.get(key) {
+                        // Found a duplicate!
+                        self.errors.push(SchemaError::DuplicateJsonKey {
+                            key: key.clone(),
+                            first_occurrence: Some(*first_range),
+                            duplicate_occurrence: Some(*key_range),
+                        });
+                    } else {
+                        seen_keys.insert(key.clone(), *key_range);
+                    }
+                }
+
+                // Recursively check nested objects
+                for (_, (_, val)) in obj.iter() {
+                    self.check_duplicate_keys(val);
+                }
+            }
+            JsonValue::Array(items, _) => {
+                // Check each array item
+                for item in items {
+                    self.check_duplicate_keys(item);
+                }
+            }
+            _ => {
+                // Primitives don't have nested structure
             }
         }
     }
@@ -1244,6 +1286,62 @@ mod tests {
         assert!(
             schema.parse_errors.is_empty(),
             "Expected no parse errors for valid schema"
+        );
+    }
+
+    #[test]
+    fn test_duplicate_key_detection() {
+        let mut parser = AvroParser::new();
+        let json = r#"{
+            "type": "record",
+            "name": "Test",
+            "name": "DuplicateName",
+            "fields": []
+        }"#;
+        let schema = parser.parse(json).unwrap();
+
+        // Should detect duplicate "name" key
+        assert!(
+            !schema.parse_errors.is_empty(),
+            "Expected parse errors for duplicate keys"
+        );
+
+        let has_duplicate_key_error = schema
+            .parse_errors
+            .iter()
+            .any(|e| matches!(e, SchemaError::DuplicateJsonKey { key, .. } if key == "name"));
+
+        assert!(
+            has_duplicate_key_error,
+            "Expected DuplicateJsonKey error for 'name'"
+        );
+    }
+
+    #[test]
+    fn test_duplicate_keys_in_nested_objects() {
+        let mut parser = AvroParser::new();
+        let json = r#"{
+            "type": "record",
+            "name": "Test",
+            "fields": [
+                {
+                    "name": "field1",
+                    "type": "int",
+                    "type": "string"
+                }
+            ]
+        }"#;
+        let schema = parser.parse(json).unwrap();
+
+        // Should detect duplicate "type" key in nested field object
+        let has_duplicate_type_error = schema
+            .parse_errors
+            .iter()
+            .any(|e| matches!(e, SchemaError::DuplicateJsonKey { key, .. } if key == "type"));
+
+        assert!(
+            has_duplicate_type_error,
+            "Expected DuplicateJsonKey error for 'type' in nested object"
         );
     }
 }
