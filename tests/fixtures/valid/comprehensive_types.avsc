@@ -1,0 +1,292 @@
+{
+  "doc": "Comprehensive example demonstrating all Avro primitive and logical types",
+  "fields": [
+    {
+      "doc": "Primitive type: null",
+      "name": "primitive_null",
+      "type": "null"
+    },
+    {
+      "doc": "Primitive type: boolean",
+      "name": "primitive_boolean",
+      "type": "boolean"
+    },
+    {
+      "doc": "Primitive type: int (32-bit signed integer)",
+      "name": "primitive_int",
+      "type": "int"
+    },
+    {
+      "doc": "Primitive type: long (64-bit signed integer)",
+      "name": "primitive_long",
+      "type": "long"
+    },
+    {
+      "doc": "Primitive type: float (32-bit IEEE 754 floating-point)",
+      "name": "primitive_float",
+      "type": "float"
+    },
+    {
+      "doc": "Primitive type: double (64-bit IEEE 754 floating-point)",
+      "name": "primitive_double",
+      "type": "double"
+    },
+    {
+      "doc": "Primitive type: bytes (sequence of 8-bit unsigned bytes)",
+      "name": "primitive_bytes",
+      "type": "bytes"
+    },
+    {
+      "doc": "Primitive type: string (Unicode character sequence)",
+      "name": "primitive_string",
+      "type": "string"
+    },
+    {
+      "doc": "Logical type: date (days since Unix epoch, 1970-01-01)",
+      "name": "logical_date",
+      "type": {
+        "logicalType": "date",
+        "type": "int"
+      }
+    },
+    {
+      "doc": "Logical type: time-millis (milliseconds after midnight)",
+      "name": "logical_time_millis",
+      "type": {
+        "logicalType": "time-millis",
+        "type": "int"
+      }
+    },
+    {
+      "doc": "Logical type: time-micros (microseconds after midnight)",
+      "name": "logical_time_micros",
+      "type": {
+        "logicalType": "time-micros",
+        "type": "long"
+      }
+    },
+    {
+      "doc": "Logical type: timestamp-millis (milliseconds since Unix epoch)",
+      "name": "logical_timestamp_millis",
+      "type": {
+        "logicalType": "timestamp-millis",
+        "type": "long"
+      }
+    },
+    {
+      "doc": "Logical type: timestamp-micros (microseconds since Unix epoch)",
+      "name": "logical_timestamp_micros",
+      "type": {
+        "logicalType": "timestamp-micros",
+        "type": "long"
+      }
+    },
+    {
+      "doc": "Logical type: local-timestamp-millis (no timezone, milliseconds)",
+      "name": "logical_local_timestamp_millis",
+      "type": {
+        "logicalType": "local-timestamp-millis",
+        "type": "long"
+      }
+    },
+    {
+      "doc": "Logical type: local-timestamp-micros (no timezone, microseconds)",
+      "name": "logical_local_timestamp_micros",
+      "type": {
+        "logicalType": "local-timestamp-micros",
+        "type": "long"
+      }
+    },
+    {
+      "doc": "Logical type: uuid (RFC 4122 UUID)",
+      "name": "logical_uuid",
+      "type": {
+        "logicalType": "uuid",
+        "type": "string"
+      }
+    },
+    {
+      "doc": "Logical type: decimal (arbitrary-precision decimal, bytes encoding)",
+      "name": "logical_decimal_bytes",
+      "type": {
+        "logicalType": "decimal",
+        "precision": 10,
+        "scale": 2,
+        "type": "bytes"
+      }
+    },
+    {
+      "doc": "Logical type: decimal (arbitrary-precision decimal, fixed encoding)",
+      "name": "logical_decimal_fixed",
+      "type": {
+        "logicalType": "decimal",
+        "name": "DecimalFixed",
+        "precision": 38,
+        "scale": 4,
+        "size": 16,
+        "type": "fixed"
+      }
+    },
+    {
+      "doc": "Logical type: duration (12 bytes: months, days, milliseconds)",
+      "name": "logical_duration",
+      "type": {
+        "logicalType": "duration",
+        "name": "Duration",
+        "size": 12,
+        "type": "fixed"
+      }
+    },
+    {
+      "doc": "Complex type: enum",
+      "name": "complex_enum",
+      "type": {
+        "name": "Status",
+        "symbols": [
+          "ACTIVE",
+          "INACTIVE",
+          "PENDING",
+          "DELETED"
+        ],
+        "type": "enum"
+      }
+    },
+    {
+      "doc": "Complex type: array of strings",
+      "name": "complex_array",
+      "type": {
+        "items": "string",
+        "type": "array"
+      }
+    },
+    {
+      "doc": "Complex type: map with string keys and int values",
+      "name": "complex_map",
+      "type": {
+        "type": "map",
+        "values": "int"
+      }
+    },
+    {
+      "default": null,
+      "doc": "Complex type: union (nullable string)",
+      "name": "complex_union_nullable",
+      "type": [
+        "null",
+        "string"
+      ]
+    },
+    {
+      "default": null,
+      "doc": "Complex type: union with multiple types including nested record",
+      "name": "complex_union_multi",
+      "type": [
+        "null",
+        "string",
+        "int",
+        {
+          "fields": [
+            {
+              "name": "id",
+              "type": "long"
+            },
+            {
+              "name": "name",
+              "type": "string"
+            }
+          ],
+          "name": "NestedRecord",
+          "type": "record"
+        }
+      ]
+    },
+    {
+      "doc": "Complex type: fixed (16-byte MD5 hash)",
+      "name": "complex_fixed",
+      "type": {
+        "name": "MD5Hash",
+        "size": 16,
+        "type": "fixed"
+      }
+    },
+    {
+      "doc": "Complex type: nested record with deeply nested record",
+      "name": "nested_record",
+      "type": {
+        "fields": [
+          {
+            "name": "street",
+            "type": "string"
+          },
+          {
+            "name": "city",
+            "type": "string"
+          },
+          {
+            "name": "zipcode",
+            "type": "string"
+          },
+          {
+            "name": "coordinates",
+            "type": {
+              "fields": [
+                {
+                  "name": "latitude",
+                  "type": "double"
+                },
+                {
+                  "name": "longitude",
+                  "type": "double"
+                }
+              ],
+              "name": "Coordinates",
+              "type": "record"
+            }
+          }
+        ],
+        "name": "Address",
+        "type": "record"
+      }
+    },
+    {
+      "default": null,
+      "doc": "Union containing a logical type",
+      "name": "union_with_logical_type",
+      "type": [
+        "null",
+        {
+          "logicalType": "timestamp-millis",
+          "type": "long"
+        }
+      ]
+    },
+    {
+      "doc": "Array of UUIDs (logical type)",
+      "name": "array_of_logical_types",
+      "type": {
+        "items": {
+          "logicalType": "uuid",
+          "type": "string"
+        },
+        "type": "array"
+      }
+    },
+    {
+      "doc": "Map with decimal values (logical type)",
+      "name": "map_of_logical_types",
+      "type": {
+        "type": "map",
+        "values": {
+          "logicalType": "decimal",
+          "precision": 20,
+          "scale": 6,
+          "type": "bytes"
+        }
+      }
+    }
+  ],
+  "name": "ComprehensiveTypesExample",
+  "namespace": "com.example.avro",
+  "type": "record"
+}
+

@@ -1,0 +1,12 @@
+{
+  "type": "record",
+  "name": "TestRecord",
+  "fields": [
+    {
+      "name": "typo_field",
+      "type": {
+        "type": "strign"
+      }
+    }
+  ]
+}

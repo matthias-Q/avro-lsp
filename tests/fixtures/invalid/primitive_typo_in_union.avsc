@@ -1,0 +1,15 @@
+{
+  "type": "record",
+  "name": "TestUnionWithTypo",
+  "fields": [
+    {
+      "name": "optional_value",
+      "type": [
+        "null",
+        {
+          "type": "doubl"
+        }
+      ]
+    }
+  ]
+}

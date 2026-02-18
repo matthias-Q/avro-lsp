@@ -1,0 +1,13 @@
+{
+  "type": "record",
+  "name": "MissingPrecision",
+  "fields": [
+    {
+      "name": "price",
+      "type": {
+        "type": "bytes",
+        "logicalType": "decimal"
+      }
+    }
+  ]
+}

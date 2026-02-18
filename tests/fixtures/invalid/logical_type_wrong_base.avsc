@@ -1,0 +1,13 @@
+{
+  "type": "record",
+  "name": "InvalidLogicalType",
+  "fields": [
+    {
+      "name": "bad_uuid",
+      "type": {
+        "type": "int",
+        "logicalType": "uuid"
+      }
+    }
+  ]
+}

@@ -1,0 +1,15 @@
+{
+  "type": "record",
+  "name": "InvalidScale",
+  "fields": [
+    {
+      "name": "bad_decimal",
+      "type": {
+        "type": "bytes",
+        "logicalType": "decimal",
+        "precision": 5,
+        "scale": 10
+      }
+    }
+  ]
+}

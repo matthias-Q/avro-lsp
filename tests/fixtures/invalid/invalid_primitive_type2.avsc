@@ -1,0 +1,18 @@
+{
+  "type": "record",
+  "name": "TestRecord",
+  "fields": [
+    {
+      "name": "typo1",
+      "type": "integr"
+    },
+    {
+      "name": "typo2",
+      "type": "bolean"
+    },
+    {
+      "name": "typo3",
+      "type": "doubel"
+    }
+  ]
+}

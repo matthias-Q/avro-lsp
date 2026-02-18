@@ -1,0 +1,15 @@
+{
+  "type": "record",
+  "name": "TestArrayWithTypo",
+  "fields": [
+    {
+      "name": "items",
+      "type": {
+        "type": "array",
+        "items": {
+          "type": "ineger"
+        }
+      }
+    }
+  ]
+}

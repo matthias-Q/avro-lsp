@@ -1,0 +1,24 @@
+{
+  "type": "record",
+  "name": "TestMultipleTypos",
+  "fields": [
+    {
+      "name": "field1",
+      "type": {
+        "type": "lon"
+      }
+    },
+    {
+      "name": "field2",
+      "type": {
+        "type": "flot"
+      }
+    },
+    {
+      "name": "field3",
+      "type": {
+        "type": "nul"
+      }
+    }
+  ]
+}

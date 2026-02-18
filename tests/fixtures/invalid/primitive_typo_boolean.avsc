@@ -1,0 +1,12 @@
+{
+  "type": "record",
+  "name": "TestBooleanTypo",
+  "fields": [
+    {
+      "name": "flag",
+      "type": {
+        "type": "boolena"
+      }
+    }
+  ]
+}

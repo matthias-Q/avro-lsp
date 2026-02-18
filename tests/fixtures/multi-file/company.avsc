@@ -1,0 +1,10 @@
+{
+  "type": "record",
+  "name": "Company",
+  "namespace": "com.example",
+  "fields": [
+    {"name": "name", "type": "string"},
+    {"name": "hqAddress", "type": "Address2"},
+    {"name": "ceo", "type": "User"}
+  ]
+}

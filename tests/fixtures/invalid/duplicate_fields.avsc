@@ -1,0 +1,9 @@
+{
+  "type": "record",
+  "name": "User",
+  "fields": [
+    {"name": "id", "type": "int"},
+    {"name": "username", "type": "string"},
+    {"name": "id", "type": "long"}
+  ]
+}

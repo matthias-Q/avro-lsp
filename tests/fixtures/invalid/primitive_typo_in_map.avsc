@@ -1,0 +1,15 @@
+{
+  "type": "record",
+  "name": "TestMapWithTypo",
+  "fields": [
+    {
+      "name": "lookup",
+      "type": {
+        "type": "map",
+        "values": {
+          "type": "sting"
+        }
+      }
+    }
+  ]
+}
