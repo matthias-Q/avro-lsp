@@ -2,6 +2,20 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.1.15] - 2026-02-18
+
+### Features
+
+- Add cli linting for ci
+
+### Performance
+
+- Add benchmarks
+
+### Miscellaneous Tasks
+
+- *(release)* Release version v0.1.15
+
 ## [0.1.14] - 2026-02-18
 
 ### Miscellaneous Tasks
