@@ -2,7 +2,7 @@
   "name": "avro-lsp",
   "displayName": "Avro Language Server",
   "description": "Language Server Protocol support for Apache Avro schema files (.avsc)",
-  "version": "0.1.11",
+  "version": "0.1.12",
   "publisher": "matthias-queitsch",
   "license": "MIT",
   "engines": {

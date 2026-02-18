@@ -2,6 +2,26 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.1.12] - 2026-02-18
+
+### Bug Fixes
+
+- Semantic tokens for `logicalTypes`
+- Tests
+
+### Refactor
+
+- Parser returns semantic tokens directly
+
+### Testing
+
+- Add sample avsc
+
+### Miscellaneous Tasks
+
+- Cleanup
+- *(release)* Release version v0.1.12
+
 ## [0.1.11] - 2026-02-18
 
 ### Miscellaneous Tasks
