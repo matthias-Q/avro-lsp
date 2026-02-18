@@ -294,8 +294,7 @@ pub fn check_union_complexity_warnings(union: &UnionSchema) -> Vec<SchemaWarning
             complex_types.iter().map(|t| type_description(t)).collect();
 
         let message = format!(
-            "Union contains complex types ({}) mixed with multiple other types, \
-            which may not be supported by Apache Iceberg.",
+            "Union contains complex types ({}) mixed with multiple other types.",
             complex_type_names.join(", ")
         );
 
