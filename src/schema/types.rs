@@ -91,6 +91,10 @@ pub struct PrimitiveSchema {
     pub name_range: Option<Range>,
     #[serde(skip)]
     pub namespace_range: Option<Range>,
+    #[serde(skip)]
+    pub type_name_range: Option<Range>,
+    #[serde(skip)]
+    pub logical_type_range: Option<Range>,
 }
 
 /// Represents an invalid type that failed validation during parsing

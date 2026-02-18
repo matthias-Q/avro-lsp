@@ -6,6 +6,3 @@ vscode-avro-lsp/out/
 vscode-avro-lsp/dist/
 vscode-avro-lsp/bin/
 vscode-avro-lsp/*.vsix
-
-# Test files
-*.avsc

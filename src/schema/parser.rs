@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use super::error::{Result, SchemaError};
-use super::json_parser::{JsonValue, parse_json};
+use super::json_parser::{parse_json, JsonValue};
 use super::types::*;
 
 pub struct AvroParser {
@@ -393,8 +393,19 @@ impl AvroParser {
                 suggested: suggest_primitive_type(&type_name),
             })?;
 
-        // Parse logical type and attributes
-        let logical_type = self.get_optional_string(obj, "logicalType");
+        // Capture range for type_name value
+        let type_name_range = obj.get("type").map(|v| v.range());
+
+        // Parse logical type and capture its range
+        let (logical_type, logical_type_range) = obj
+            .get("logicalType")
+            .and_then(|v| match v {
+                JsonValue::String(s, range) => Some((s.clone(), *range)),
+                _ => None,
+            })
+            .map(|(s, r)| (Some(s), Some(r)))
+            .unwrap_or((None, None));
+
         let precision = obj.get("precision").and_then(|v| match v {
             JsonValue::Number(n, _) => Some(*n as usize),
             _ => None,
@@ -413,6 +424,8 @@ impl AvroParser {
             range: Some(range),
             name_range: None,
             namespace_range: None,
+            type_name_range,
+            logical_type_range,
         }))
     }
 

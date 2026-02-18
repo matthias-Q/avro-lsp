@@ -70,6 +70,9 @@ impl SemanticTokensBuilder {
             "default",
             "aliases",
             "order",
+            "logicalType",
+            "precision",
+            "scale",
         ] {
             let pattern = format!("\"{}\":", key);
             let mut search_start = 0;
@@ -365,6 +368,31 @@ impl SemanticTokensBuilder {
                     }
 
                     search_start += offset + pattern.len();
+                }
+            }
+            AvroType::PrimitiveObject(prim_obj) => {
+                // Tokenize type value: e.g. "long", "bytes" (ranges include quotes, so +1)
+                if let Some(range) = prim_obj.type_name_range {
+                    self.add_token(
+                        range.start.line,
+                        range.start.character + 1,
+                        prim_obj.type_name.len() as u32,
+                        TOKEN_TYPE_TYPE,
+                        TOKEN_MODIFIER_READONLY,
+                    );
+                }
+
+                // Tokenize logical type value: e.g. "timestamp-millis", "decimal"
+                if let (Some(logical_type), Some(range)) =
+                    (&prim_obj.logical_type, prim_obj.logical_type_range)
+                {
+                    self.add_token(
+                        range.start.line,
+                        range.start.character + 1,
+                        logical_type.len() as u32,
+                        TOKEN_TYPE_TYPE,
+                        TOKEN_MODIFIER_READONLY,
+                    );
                 }
             }
             AvroType::TypeRef(type_ref) => {
@@ -719,6 +747,289 @@ mod tests {
             !has_integr_token,
             "Should NOT have token for invalid 'integr' at line {}, char {}",
             integr_line, integr_char_pos
+        );
+    }
+
+    #[test]
+    fn test_semantic_tokens_logical_type_timestamp() {
+        let text = r#"{
+  "type": "record",
+  "name": "Event",
+  "fields": [
+    {
+      "name": "createdDate",
+      "type": {
+        "type": "long",
+        "logicalType": "timestamp-millis"
+      }
+    }
+  ]
+}"#;
+
+        let mut parser = AvroParser::new();
+        let schema = parser.parse(text).expect("Should parse");
+
+        let tokens = build_semantic_tokens(&schema, text.to_string());
+
+        // Convert delta-encoded tokens to absolute positions
+        let mut abs_tokens = Vec::new();
+        let mut current_line = 0u32;
+        let mut current_char = 0u32;
+
+        for token in &tokens {
+            current_line += token.delta_line;
+            if token.delta_line > 0 {
+                current_char = token.delta_start;
+            } else {
+                current_char += token.delta_start;
+            }
+            abs_tokens.push((current_line, current_char, token.length, token.token_type));
+        }
+
+        let lines: Vec<&str> = text.lines().collect();
+
+        // Verify "logicalType" keyword is tokenized
+        let logical_type_line = lines
+            .iter()
+            .position(|l| l.contains("\"logicalType\""))
+            .unwrap() as u32;
+        let has_logical_type_keyword = abs_tokens.iter().any(|(line, _, length, token_type)| {
+            *line == logical_type_line && *length == 11 && *token_type == TOKEN_TYPE_KEYWORD
+        });
+        assert!(
+            has_logical_type_keyword,
+            "Should have keyword token for 'logicalType' on line {}",
+            logical_type_line
+        );
+
+        // Verify "timestamp-millis" value is tokenized as TYPE
+        let timestamp_value_char = lines[logical_type_line as usize]
+            .find("\"timestamp-millis\"")
+            .unwrap() as u32
+            + 1; // +1 to skip opening quote
+        let has_timestamp_token = abs_tokens.iter().any(|(line, char, length, token_type)| {
+            *line == logical_type_line
+                && *char == timestamp_value_char
+                && *length == 16 // "timestamp-millis" is 16 characters
+                && *token_type == TOKEN_TYPE_TYPE
+        });
+        assert!(
+            has_timestamp_token,
+            "Should have type token for 'timestamp-millis' value at line {}, char {}",
+            logical_type_line, timestamp_value_char
+        );
+
+        // Verify "long" type is also tokenized
+        let long_line = lines
+            .iter()
+            .position(|l| l.contains("\"type\": \"long\""))
+            .unwrap() as u32;
+        let long_char = lines[long_line as usize].find("\"long\"").unwrap() as u32 + 1;
+        let has_long_token = abs_tokens.iter().any(|(line, char, length, token_type)| {
+            *line == long_line
+                && *char == long_char
+                && *length == 4
+                && *token_type == TOKEN_TYPE_TYPE
+        });
+        assert!(
+            has_long_token,
+            "Should have type token for 'long' at line {}, char {}",
+            long_line, long_char
+        );
+    }
+
+    #[test]
+    fn test_semantic_tokens_logical_type_decimal() {
+        let text = r#"{
+  "type": "record",
+  "name": "Transaction",
+  "fields": [
+    {
+      "name": "amount",
+      "type": {
+        "type": "bytes",
+        "logicalType": "decimal",
+        "precision": 10,
+        "scale": 2
+      }
+    }
+  ]
+}"#;
+
+        let mut parser = AvroParser::new();
+        let schema = parser.parse(text).expect("Should parse");
+
+        let tokens = build_semantic_tokens(&schema, text.to_string());
+
+        // Convert to absolute positions
+        let mut abs_tokens = Vec::new();
+        let mut current_line = 0u32;
+        let mut current_char = 0u32;
+
+        for token in &tokens {
+            current_line += token.delta_line;
+            if token.delta_line > 0 {
+                current_char = token.delta_start;
+            } else {
+                current_char += token.delta_start;
+            }
+            abs_tokens.push((current_line, current_char, token.length, token.token_type));
+        }
+
+        let lines: Vec<&str> = text.lines().collect();
+
+        // Verify "logicalType" keyword is tokenized
+        let has_logical_type = abs_tokens
+            .iter()
+            .any(|(_, _, length, token_type)| *length == 11 && *token_type == TOKEN_TYPE_KEYWORD);
+        assert!(
+            has_logical_type,
+            "Should have keyword token for 'logicalType'"
+        );
+
+        // Verify "precision" keyword is tokenized
+        let precision_line = lines
+            .iter()
+            .position(|l| l.contains("\"precision\""))
+            .unwrap() as u32;
+        let has_precision = abs_tokens.iter().any(|(line, _, length, token_type)| {
+            *line == precision_line && *length == 9 && *token_type == TOKEN_TYPE_KEYWORD
+        });
+        assert!(
+            has_precision,
+            "Should have keyword token for 'precision' on line {}",
+            precision_line
+        );
+
+        // Verify "scale" keyword is tokenized
+        let scale_line = lines.iter().position(|l| l.contains("\"scale\"")).unwrap() as u32;
+        let has_scale = abs_tokens.iter().any(|(line, _, length, token_type)| {
+            *line == scale_line && *length == 5 && *token_type == TOKEN_TYPE_KEYWORD
+        });
+        assert!(
+            has_scale,
+            "Should have keyword token for 'scale' on line {}",
+            scale_line
+        );
+
+        // Verify "decimal" value is tokenized
+        let decimal_line = lines
+            .iter()
+            .position(|l| l.contains("\"decimal\""))
+            .unwrap() as u32;
+        let decimal_char = lines[decimal_line as usize].find("\"decimal\"").unwrap() as u32 + 1;
+        let has_decimal = abs_tokens.iter().any(|(line, char, length, token_type)| {
+            *line == decimal_line
+                && *char == decimal_char
+                && *length == 7
+                && *token_type == TOKEN_TYPE_TYPE
+        });
+        assert!(
+            has_decimal,
+            "Should have type token for 'decimal' value at line {}, char {}",
+            decimal_line, decimal_char
+        );
+
+        // Verify "bytes" type is also tokenized
+        let bytes_line = lines
+            .iter()
+            .position(|l| l.contains("\"type\": \"bytes\""))
+            .unwrap() as u32;
+        let has_bytes = abs_tokens.iter().any(|(line, _, length, token_type)| {
+            *line == bytes_line && *length == 5 && *token_type == TOKEN_TYPE_TYPE
+        });
+        assert!(
+            has_bytes,
+            "Should have type token for 'bytes' on line {}",
+            bytes_line
+        );
+    }
+
+    #[test]
+    fn test_semantic_tokens_logical_type_in_union() {
+        let text = r#"{
+  "type": "record",
+  "name": "User",
+  "fields": [
+    {
+      "name": "lastLogin",
+      "type": [
+        "null",
+        {
+          "type": "long",
+          "logicalType": "timestamp-millis"
+        }
+      ]
+    }
+  ]
+}"#;
+
+        let mut parser = AvroParser::new();
+        let schema = parser.parse(text).expect("Should parse");
+
+        let tokens = build_semantic_tokens(&schema, text.to_string());
+
+        // Convert to absolute positions
+        let mut abs_tokens = Vec::new();
+        let mut current_line = 0u32;
+        let mut current_char = 0u32;
+
+        for token in &tokens {
+            current_line += token.delta_line;
+            if token.delta_line > 0 {
+                current_char = token.delta_start;
+            } else {
+                current_char += token.delta_start;
+            }
+            abs_tokens.push((current_line, current_char, token.length, token.token_type));
+        }
+
+        let lines: Vec<&str> = text.lines().collect();
+
+        // Verify "null" in union is tokenized
+        let null_line = lines.iter().position(|l| l.trim() == "\"null\",").unwrap() as u32;
+        let has_null = abs_tokens.iter().any(|(line, _, length, token_type)| {
+            *line == null_line && *length == 4 && *token_type == TOKEN_TYPE_TYPE
+        });
+        assert!(
+            has_null,
+            "Should have type token for 'null' in union on line {}",
+            null_line
+        );
+
+        // Verify "long" type inside union object is tokenized
+        let long_line = lines
+            .iter()
+            .position(|l| l.contains("\"type\": \"long\""))
+            .unwrap() as u32;
+        let has_long = abs_tokens.iter().any(|(line, _, length, token_type)| {
+            *line == long_line && *length == 4 && *token_type == TOKEN_TYPE_TYPE
+        });
+        assert!(
+            has_long,
+            "Should have type token for 'long' in union on line {}",
+            long_line
+        );
+
+        // Verify "timestamp-millis" logical type is tokenized
+        let timestamp_line = lines
+            .iter()
+            .position(|l| l.contains("\"timestamp-millis\""))
+            .unwrap() as u32;
+        let timestamp_char = lines[timestamp_line as usize]
+            .find("\"timestamp-millis\"")
+            .unwrap() as u32
+            + 1;
+        let has_timestamp = abs_tokens.iter().any(|(line, char, length, token_type)| {
+            *line == timestamp_line
+                && *char == timestamp_char
+                && *length == 16 // "timestamp-millis" is 16 characters
+                && *token_type == TOKEN_TYPE_TYPE
+        });
+        assert!(
+            has_timestamp,
+            "Should have type token for 'timestamp-millis' in union at line {}, char {}",
+            timestamp_line, timestamp_char
         );
     }
 }
