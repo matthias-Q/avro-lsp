@@ -27,72 +27,6 @@ This guide provides essential information for AI coding agents and human develop
 
 ---
 
-## ✅ Completed Features
-
-### Phase 1A - Core Validation ✅
-- Real-time diagnostics with precise error positioning
-- JSON syntax validation
-- Schema validation (names, namespaces, type references, union constraints)
-
-### Phase 1B - IDE Features ✅
-- **Hover information** - Rich type details for all schema elements
-- **Document symbols** - Hierarchical outline view
-- **Semantic tokens** - Meaning-aware syntax highlighting
-- **Inlay hints** - Inline type information for fields
-
-### Phase 2 - Navigation & Completion ✅
-- **Auto-completion** - Context-aware suggestions with snippet support
-  - Smart cursor positioning inside quotes and brackets
-  - Suggests keys, types, and named type references
-  - Triggered by `"`, `:`, `,`
-- **Go to definition** - Navigate to type declarations
-  - Jump to definition by clicking on type references
-  - Works for records, enums, and fixed types
-
-### Phase 3A - Document Formatting ✅
-- **Document formatting** - Format `.avsc` files with consistent style
-  - Uses 2-space indentation (standard JSON formatting)
-  - Automatically removes trailing commas (invalid JSON)
-  - Returns error for invalid JSON
-  - Idempotent formatting (format twice = same result)
-  - Integrated with editor format commands (e.g., `:lua vim.lsp.buf.format()` in Neovim)
-
-### Phase 3C - Code Actions ✅
-- **Code actions** - Context-aware refactoring and quick fixes
-  - **Add field to record** - Insert new field scaffold in fields array
-  - **Add documentation** - Add doc field to record/enum/fixed definitions
-  - **Make field nullable** - Wrap field type in union with null
-  - Actions appear contextually based on cursor position
-  - Integrated with editor code action commands (e.g., `:lua vim.lsp.buf.code_action()` in Neovim)
-
-### Phase 4 - Workspace & Multi-file Support ✅
-- **Workspace infrastructure** - Automatic workspace scanning
-  - Scans for all `.avsc` files in workspace on initialization
-  - Requires `.git` directory in workspace root for workspace detection
-  - Maintains index of all named types across workspace
-- **Cross-file type resolution** - Types can reference definitions in other files
-  - Validates type references across multiple schema files
-  - Resolves fully qualified names (e.g., `com.example.Address`)
-  - Reports errors for undefined types even across files
-- **Cross-file go-to-definition** - Navigate between schema files
-  - Jump to type definition in any workspace file
-  - Works with Ctrl+Click (Cmd+Click on macOS)
-- **Cross-file find-references** - Find usages across workspace
-  - Locate all references to a type in all workspace files
-  - Shows file location and line number for each reference
-- **Cross-file rename** - Rename types across all files
-  - Renames type definitions and all references in workspace
-  - Works from either definition or reference location
-  - Updates multiple files in single operation
-  - Maintains schema consistency across workspace
-- **Folding ranges** - Code folding support
-  - Fold record definitions (entire record body)
-  - Fold fields arrays
-  - Fold enum symbols
-  - Improves navigation in large schema files
-
----
-
 ## Build & Development Commands
 
 ### Building
@@ -240,10 +174,10 @@ use crate::state::ServerState;
       let content = std::fs::read_to_string(path)?;
       parse_schema(&content)
   }
-  
+
   // Avoid in production paths
   let schema = load_schema(path).unwrap(); // Bad!
-  
+
   // Acceptable for initialization
   let config = Config::load().expect("Config must exist at startup");
   ```
@@ -293,7 +227,7 @@ use crate::state::ServerState;
       .iter()
       .filter(|s| s.is_valid())
       .collect();
-  
+
   // Good: Pattern matching
   match schema_type {
       SchemaType::Record => handle_record(),
