@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.1.14] - 2026-02-18
+
+### Miscellaneous Tasks
+
+- Adress clippy & formatting
+- *(release)* Release version v0.1.14
+
 ## [0.1.13] - 2026-02-18
 
 ### Features
