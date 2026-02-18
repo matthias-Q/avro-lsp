@@ -270,27 +270,17 @@ release:
       echo "Uploading VSIX: $EXPECTED_VSIX_NAME"
       curl --header "JOB-TOKEN: ${CI_JOB_TOKEN}" --upload-file "$VSIX_FILE" \
         "${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic/avro-lsp/${CI_COMMIT_TAG}/${EXPECTED_VSIX_NAME}"
+      
+      # Create release with proper asset links using release-cli
+      release-cli create \
+        --name "Release ${CI_COMMIT_TAG}" \
+        --tag-name "${CI_COMMIT_TAG}" \
+        --description release_notes.md \
+        --assets-link "{\"name\":\"avro-lsp-linux-x64\",\"url\":\"${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic/avro-lsp/${CI_COMMIT_TAG}/avro-lsp-linux-x64\",\"link_type\":\"package\"}" \
+        --assets-link "{\"name\":\"avro-lsp-win32-x64.exe\",\"url\":\"${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic/avro-lsp/${CI_COMMIT_TAG}/avro-lsp-win32-x64.exe\",\"link_type\":\"package\"}" \
+        --assets-link "{\"name\":\"avro-lsp-darwin-x64 (Intel Mac)\",\"url\":\"${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic/avro-lsp/${CI_COMMIT_TAG}/avro-lsp-darwin-x64\",\"link_type\":\"package\"}" \
+        --assets-link "{\"name\":\"avro-lsp-darwin-arm64 (Apple Silicon)\",\"url\":\"${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic/avro-lsp/${CI_COMMIT_TAG}/avro-lsp-darwin-arm64\",\"link_type\":\"package\"}" \
+        --assets-link "{\"name\":\"VS Code Extension (.vsix)\",\"url\":\"${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic/avro-lsp/${CI_COMMIT_TAG}/avro-lsp-${VERSION_NUMBER}.vsix\",\"link_type\":\"package\"}"
   artifacts:
     reports:
       dotenv: release.env
-  release:
-    tag_name: '$CI_COMMIT_TAG'
-    name: 'Release $CI_COMMIT_TAG'
-    description: './release_notes.md'
-    assets:
-      links:
-        - name: 'avro-lsp-linux-x64'
-          url: '${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic/avro-lsp/${CI_COMMIT_TAG}/avro-lsp-linux-x64'
-          link_type: 'package'
-        - name: 'avro-lsp-win32-x64.exe'
-          url: '${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic/avro-lsp/${CI_COMMIT_TAG}/avro-lsp-win32-x64.exe'
-          link_type: 'package'
-        - name: 'avro-lsp-darwin-x64 (Intel Mac)'
-          url: '${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic/avro-lsp/${CI_COMMIT_TAG}/avro-lsp-darwin-x64'
-          link_type: 'package'
-        - name: 'avro-lsp-darwin-arm64 (Apple Silicon)'
-          url: '${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic/avro-lsp/${CI_COMMIT_TAG}/avro-lsp-darwin-arm64'
-          link_type: 'package'
-        - name: 'VS Code Extension (.vsix)'
-          url: '${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic/avro-lsp/${CI_COMMIT_TAG}/avro-lsp-${VERSION_NUMBER}.vsix'
-          link_type: 'package'
