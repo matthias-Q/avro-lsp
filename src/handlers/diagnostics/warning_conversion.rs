@@ -4,7 +4,7 @@ use crate::schema::SchemaWarning;
 
 /// Convert a schema warning to an LSP diagnostic with WARNING severity
 pub fn convert_warning(warning: &SchemaWarning) -> Diagnostic {
-    let range = warning.range().unwrap_or_else(|| Range {
+    let range = warning.range().unwrap_or(Range {
         start: Position {
             line: 0,
             character: 0,

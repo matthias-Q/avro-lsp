@@ -3,7 +3,9 @@ use std::collections::{HashMap, HashSet};
 use regex::Regex;
 
 use super::super::error::{Result, SchemaError};
-use super::super::types::{AvroType, EnumSchema, FixedSchema, PrimitiveType, RecordSchema, UnionSchema};
+use super::super::types::{
+    AvroType, EnumSchema, FixedSchema, PrimitiveType, RecordSchema, UnionSchema,
+};
 use super::super::warning::SchemaWarning;
 use super::default_validators::validate_default_value;
 use super::logical_type_validators::validate_logical_type_for_fixed;
@@ -266,7 +268,7 @@ pub fn check_union_complexity_warnings(union: &UnionSchema) -> Vec<SchemaWarning
 
     // Simple nullable pattern: ["null", <complex_type>] - OK, no warning
     let is_simple_nullable =
-        types.len() == 2 && types.iter().any(|t| is_null_type(t)) && complex_types.len() == 1;
+        types.len() == 2 && types.iter().any(is_null_type) && complex_types.len() == 1;
 
     // Warn if:
     // - 2+ complex types (regardless of null)

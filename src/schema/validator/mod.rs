@@ -118,7 +118,9 @@ impl AvroValidator {
         match avro_type {
             AvroType::Union(union_schema) => {
                 // Check for complex union patterns
-                warnings.extend(complex_validators::check_union_complexity_warnings(union_schema));
+                warnings.extend(complex_validators::check_union_complexity_warnings(
+                    union_schema,
+                ));
                 // Recursively check nested types
                 for t in &union_schema.types {
                     self.collect_warnings_from_type(t, warnings);

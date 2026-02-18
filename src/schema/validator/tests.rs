@@ -234,10 +234,10 @@ fn test_union_with_two_records_warns() {
         }]
     }"#;
     let schema = parser.parse(json).unwrap();
-    
+
     // Should validate successfully (not an error)
     assert!(validator.validate(&schema).is_ok());
-    
+
     // But should produce a warning
     let warnings = validator.collect_warnings(&schema);
     assert_eq!(warnings.len(), 1);
@@ -264,9 +264,12 @@ fn test_simple_nullable_no_warning() {
         }]
     }"#;
     let schema = parser.parse(json).unwrap();
-    
+
     let warnings = validator.collect_warnings(&schema);
-    assert!(warnings.is_empty(), "Simple nullable should not produce warnings");
+    assert!(
+        warnings.is_empty(),
+        "Simple nullable should not produce warnings"
+    );
 }
 
 #[test]
@@ -285,7 +288,7 @@ fn test_union_with_array_and_record_warns() {
         }]
     }"#;
     let schema = parser.parse(json).unwrap();
-    
+
     let warnings = validator.collect_warnings(&schema);
     assert_eq!(warnings.len(), 1);
 }
@@ -303,7 +306,7 @@ fn test_union_of_primitives_no_warning() {
         }]
     }"#;
     let schema = parser.parse(json).unwrap();
-    
+
     let warnings = validator.collect_warnings(&schema);
     assert!(warnings.is_empty(), "Union of primitives should not warn");
 }
