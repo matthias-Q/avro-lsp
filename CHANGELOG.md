@@ -2,6 +2,17 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.1.10] - 2026-02-18
+
+### Features
+
+- Detect duplicate field names
+
+### Miscellaneous Tasks
+
+- New release steps
+- *(release)* Release version v0.1.10
+
 ## [0.1.9] - 2026-02-14
 
 ### Miscellaneous Tasks
