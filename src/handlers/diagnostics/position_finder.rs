@@ -169,6 +169,34 @@ pub(super) fn find_error_position_in_ast(
                     _ => None,
                 }
             }
+            SchemaError::DuplicateFieldName {
+                field,
+                duplicate_occurrence,
+                ..
+            } => {
+                if duplicate_occurrence.is_some() {
+                    return *duplicate_occurrence;
+                }
+                tracing::debug!("Searching for DuplicateFieldName: {}", field);
+                match avro_type {
+                    AvroType::Record(record) => {
+                        // Find the duplicate field in the record
+                        for rec_field in &record.fields {
+                            if rec_field.name == *field {
+                                tracing::debug!(
+                                    "Found field '{}' with duplicate name at {:?}",
+                                    field,
+                                    rec_field.name_range
+                                );
+                                return rec_field.name_range;
+                            }
+                        }
+                        // Fall back to record range if field not found
+                        record.range
+                    }
+                    _ => None,
+                }
+            }
             SchemaError::Custom {
                 message: msg,
                 range,

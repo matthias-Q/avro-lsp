@@ -51,6 +51,14 @@ pub enum SchemaError {
         duplicate_occurrence: Option<Range>,
     },
 
+    #[error("Duplicate field name '{field}' in record '{record}'")]
+    DuplicateFieldName {
+        field: String,
+        record: String,
+        first_occurrence: Option<Range>,
+        duplicate_occurrence: Option<Range>,
+    },
+
     #[error("Duplicate type in union: {type_signature}")]
     DuplicateUnionType {
         type_signature: String,

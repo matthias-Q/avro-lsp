@@ -31,6 +31,20 @@ pub fn validate_record_with_resolver(
         });
     }
 
+    // Check for duplicate field names
+    let mut seen_fields: HashMap<&str, Option<async_lsp::lsp_types::Range>> = HashMap::new();
+    for field in &record.fields {
+        if let Some(first_occurrence) = seen_fields.get(field.name.as_str()) {
+            return Err(SchemaError::DuplicateFieldName {
+                field: field.name.clone(),
+                record: record.name.clone(),
+                first_occurrence: *first_occurrence,
+                duplicate_occurrence: field.name_range,
+            });
+        }
+        seen_fields.insert(&field.name, field.name_range);
+    }
+
     for field in &record.fields {
         validate_name_with_range(&field.name, field.name_range, name_regex)?;
         validate_type_with_resolver(name_regex, &field.field_type, named_types, resolver)?;

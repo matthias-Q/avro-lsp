@@ -1,4 +1,5 @@
 use super::*;
+use crate::schema::error::SchemaError;
 use crate::schema::parser::AvroParser;
 use crate::schema::types::*;
 
@@ -37,6 +38,32 @@ fn test_validate_duplicate_symbols() {
         namespace_range: None,
     };
     assert!(validator.validate_enum(&enum_schema).is_err());
+}
+
+#[test]
+fn test_validate_duplicate_field_names() {
+    let validator = AvroValidator::new();
+    let mut parser = AvroParser::new();
+    let json = r#"{
+        "type": "record",
+        "name": "User",
+        "fields": [
+            {"name": "id", "type": "int"},
+            {"name": "username", "type": "string"},
+            {"name": "id", "type": "long"}
+        ]
+    }"#;
+    let schema = parser.parse(json).unwrap();
+
+    let result = validator.validate(&schema);
+    assert!(result.is_err());
+
+    if let Err(SchemaError::DuplicateFieldName { field, record, .. }) = result {
+        assert_eq!(field, "id");
+        assert_eq!(record, "User");
+    } else {
+        panic!("Expected DuplicateFieldName error, got: {:?}", result);
+    }
 }
 
 #[test]
@@ -134,12 +161,10 @@ fn test_validate_invalid_logical_type_combination() {
     let validator = AvroValidator::new();
     let result = validator.validate(&schema);
     assert!(result.is_err());
-    assert!(
-        result
-            .unwrap_err()
-            .to_string()
-            .contains("Invalid logical type")
-    );
+    assert!(result
+        .unwrap_err()
+        .to_string()
+        .contains("Invalid logical type"));
 }
 
 #[test]
