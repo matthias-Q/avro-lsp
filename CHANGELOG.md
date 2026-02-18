@@ -2,6 +2,16 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.1.13] - 2026-02-18
+
+### Features
+
+- Add warning for complex unions
+
+### Miscellaneous Tasks
+
+- *(release)* Release version v0.1.13
+
 ## [0.1.12] - 2026-02-18
 
 ### Bug Fixes
