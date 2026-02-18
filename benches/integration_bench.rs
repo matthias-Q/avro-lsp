@@ -1,5 +1,5 @@
 use async_lsp::lsp_types::{Position, Url};
-use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
+use criterion::{BenchmarkId, Criterion, Throughput, black_box, criterion_group, criterion_main};
 
 use avro_lsp::handlers::{completion, formatting, hover, semantic_tokens, symbols};
 use avro_lsp::schema::{AvroParser, AvroValidator};

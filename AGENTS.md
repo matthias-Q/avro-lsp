@@ -107,7 +107,38 @@ cargo clean             # Remove build artifacts
 ```bash
 cargo run               # Run the LSP server (debug mode)
 cargo run --release     # Run optimized version
+
+# CLI linting mode (no LSP server)
+cargo run -- lint [OPTIONS] [PATHS]...
 ```
+
+### CLI Linting Commands
+```bash
+# Lint a single file
+cargo run -- lint schema.avsc
+
+# Lint a directory (recursive)
+cargo run -- lint schemas/
+
+# Lint current directory
+cargo run -- lint
+
+# Lint with workspace mode (cross-file type resolution)
+cargo run -- lint --workspace schemas/
+
+# Show help
+cargo run -- lint --help
+```
+
+The linter uses **miette** for beautiful error output with:
+- Source code snippets showing the exact error location
+- Syntax highlighting and color-coded severity (errors vs warnings)
+- Clear error messages with context
+
+Exit codes:
+- `0` - All files validated successfully
+- `1` - Validation errors found
+- `2` - Fatal error (file not found, invalid path, etc.)
 
 ### Code Quality
 ```bash

@@ -17,12 +17,14 @@
 //!
 //! ## Modules
 //!
+//! - [`cli`] - Command-line interface for linting
 //! - [`handlers`] - LSP request handlers for various capabilities
 //! - [`schema`] - Avro schema parsing, validation, and type system
 //! - [`server`] - LSP server implementation
 //! - [`state`] - Server state management and document tracking
 //! - [`workspace`] - Multi-file workspace support
 
+pub mod cli;
 pub mod handlers;
 pub mod schema;
 pub mod server;
