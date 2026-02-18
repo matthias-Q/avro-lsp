@@ -9,7 +9,7 @@ pub enum SymbolType {
     RecordType,
     EnumType,
     FixedType,
-    Field { field: Field },
+    Field { field: Box<Field> },
     TypeReference,
 }
 
@@ -70,7 +70,7 @@ pub fn extract_rename_info(
             {
                 Ok(RenameInfo {
                     symbol_type: SymbolType::Field {
-                        field: field.clone(),
+                        field: Box::new(field.clone()),
                     },
                     old_name: field.name.clone(),
                     name_range: *name_range,

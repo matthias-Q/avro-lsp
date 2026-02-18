@@ -10,7 +10,6 @@ use nom::{
     sequence::preceded,
 };
 use nom_locate::LocatedSpan;
-use std::collections::HashMap;
 
 /// Input type with position tracking
 pub type Span<'a> = LocatedSpan<&'a str>;
@@ -21,9 +20,18 @@ pub enum JsonValue {
     Null(Range),
     Bool(bool, Range),
     Number(f64, Range),
-    String(String, Range),
+    String {
+        content: String,
+        full_range: Range,    // Includes quotes: "value"
+        content_range: Range, // Without quotes: value
+    },
     Array(Vec<JsonValue>, Range),
-    Object(HashMap<String, JsonValue>, Range),
+    Object {
+        map: indexmap::IndexMap<String, (Range, JsonValue)>,
+        range: Range,
+        /// List of ALL key-range pairs (including duplicates)
+        all_keys: Vec<(String, Range)>,
+    },
 }
 
 impl JsonValue {
@@ -32,22 +40,34 @@ impl JsonValue {
             JsonValue::Null(r) => *r,
             JsonValue::Bool(_, r) => *r,
             JsonValue::Number(_, r) => *r,
-            JsonValue::String(_, r) => *r,
+            JsonValue::String { full_range, .. } => *full_range,
             JsonValue::Array(_, r) => *r,
-            JsonValue::Object(_, r) => *r,
+            JsonValue::Object { range, .. } => *range,
         }
     }
 
     pub fn as_string(&self) -> Option<&str> {
         match self {
-            JsonValue::String(s, _) => Some(s),
+            JsonValue::String { content, .. } => Some(content),
             _ => None,
         }
     }
 
-    pub fn as_object(&self) -> Option<&HashMap<String, JsonValue>> {
+    /// Get string with both full range (with quotes) and content range (without quotes)
+    pub fn as_string_with_ranges(&self) -> Option<(&str, Range, Range)> {
         match self {
-            JsonValue::Object(o, _) => Some(o),
+            JsonValue::String {
+                content,
+                full_range,
+                content_range,
+            } => Some((content, *full_range, *content_range)),
+            _ => None,
+        }
+    }
+
+    pub fn as_object(&self) -> Option<&indexmap::IndexMap<String, (Range, JsonValue)>> {
+        match self {
+            JsonValue::Object { map, .. } => Some(map),
             _ => None,
         }
     }
@@ -132,15 +152,30 @@ fn parse_number(input: Span) -> IResult<Span, JsonValue> {
 fn parse_string(input: Span) -> IResult<Span, JsonValue> {
     let start = input;
     let (input, _) = char('"')(input)?;
+    let content_start = input; // Position after opening quote
+
     let (input, s) = opt(escaped(
         take_while(|c| c != '"' && c != '\\'),
         '\\',
         one_of(r#""\/bfnrt"#),
     ))(input)?;
+
+    let content_end = input; // Position before closing quote
     let (input, _) = char('"')(input)?;
-    let range = make_range(start, input);
+    let end = input;
+
+    let full_range = make_range(start, end); // "value" with quotes
+    let content_range = make_range(content_start, content_end); // value without quotes
     let string_value = s.map(|s| s.fragment().to_string()).unwrap_or_default();
-    Ok((input, JsonValue::String(string_value, range)))
+
+    Ok((
+        input,
+        JsonValue::String {
+            content: string_value,
+            full_range,
+            content_range,
+        },
+    ))
 }
 
 /// Parse a JSON value (recursive)
@@ -171,17 +206,21 @@ fn parse_array(input: Span) -> IResult<Span, JsonValue> {
 }
 
 /// Parse object key-value pair
-fn parse_key_value(input: Span) -> IResult<Span, (String, JsonValue)> {
+fn parse_key_value(input: Span) -> IResult<Span, (String, Range, JsonValue)> {
     let (input, _) = ws(input)?;
     let (input, key) = parse_string(input)?;
-    let key_str = match key {
-        JsonValue::String(s, _) => s,
+    let (key_str, key_content_range) = match key {
+        JsonValue::String {
+            content,
+            content_range,
+            ..
+        } => (content, content_range),
         _ => unreachable!(),
     };
     let (input, _) = ws(input)?;
     let (input, _) = char(':')(input)?;
     let (input, value) = parse_value(input)?;
-    Ok((input, (key_str, value)))
+    Ok((input, (key_str, key_content_range, value)))
 }
 
 /// Parse object: { "key": value, ... }
@@ -193,8 +232,26 @@ fn parse_object(input: Span) -> IResult<Span, JsonValue> {
     let (input, _) = ws(input)?;
     let (input, _) = char('}')(input)?;
     let range = make_range(start, input);
-    let map: HashMap<String, JsonValue> = pairs.into_iter().collect();
-    Ok((input, JsonValue::Object(map, range)))
+
+    // Convert to IndexMap with key ranges
+    // Store ALL pairs (including duplicates) for later validation
+    let mut map = indexmap::IndexMap::new();
+    let mut all_keys = Vec::new();
+
+    for (key, key_range, value) in pairs {
+        all_keys.push((key.clone(), key_range));
+        // Keep first occurrence of each key
+        map.entry(key).or_insert((key_range, value));
+    }
+
+    Ok((
+        input,
+        JsonValue::Object {
+            map,
+            range,
+            all_keys,
+        },
+    ))
 }
 
 /// Main entry point: parse JSON with position tracking
@@ -304,7 +361,7 @@ mod tests {
     fn test_parse_string() {
         let result = parse_json(r#""hello""#).unwrap();
         match result {
-            JsonValue::String(s, _) => assert_eq!(s, "hello"),
+            JsonValue::String { content, .. } => assert_eq!(content, "hello"),
             _ => panic!("Expected string"),
         }
     }
@@ -375,10 +432,10 @@ mod tests {
     fn test_parse_object() {
         let result = parse_json(r#"{"name": "test", "age": 42}"#).unwrap();
         match result {
-            JsonValue::Object(obj, _) => {
-                assert_eq!(obj.len(), 2);
-                assert!(obj.contains_key("name"));
-                assert!(obj.contains_key("age"));
+            JsonValue::Object { map, .. } => {
+                assert_eq!(map.len(), 2);
+                assert!(map.contains_key("name"));
+                assert!(map.contains_key("age"));
             }
             _ => panic!("Expected object"),
         }

@@ -156,7 +156,7 @@ fn test_rename_from_type_reference_in_different_file() {
 
     let position = Position {
         line: 4,
-        character: 41,
+        character: 42,
     };
 
     let result = rename_with_workspace(

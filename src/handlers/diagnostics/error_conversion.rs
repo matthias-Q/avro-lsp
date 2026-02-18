@@ -76,6 +76,24 @@ pub(super) fn convert_parse_error(error: &SchemaError, text: &str) -> Diagnostic
             };
             (range, msg)
         }
+        SchemaError::DuplicateJsonKey {
+            key,
+            first_occurrence: _,
+            duplicate_occurrence: Some(dup_range),
+        } => {
+            tracing::debug!("Using duplicate occurrence position: {:?}", dup_range);
+            let msg = format!("Duplicate key '{}'", key);
+            (*dup_range, msg)
+        }
+        SchemaError::DuplicateJsonKey {
+            key,
+            first_occurrence: Some(first_range),
+            duplicate_occurrence: None,
+        } => {
+            tracing::debug!("Using first occurrence position: {:?}", first_range);
+            let msg = format!("Duplicate key '{}'", key);
+            (*first_range, msg)
+        }
         _ => {
             let (pos, was_adjusted) = extract_error_position_with_context(&error_msg, text);
             let range = Range {
