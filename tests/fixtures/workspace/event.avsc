@@ -1,0 +1,11 @@
+{
+  "type": "record",
+  "name": "Event",
+  "namespace": "com.example",
+  "fields": [
+    {"name": "eventId", "type": "string"},
+    {"name": "timestamp", "type": {"type": "long", "logicalType": "timestamp-millis"}},
+    {"name": "eventType", "type": {"type": "enum", "name": "EventType", "symbols": ["LOGIN", "LOGOUT", "PURCHASE", "VIEW"]}},
+    {"name": "userId", "type": "long"}
+  ]
+}

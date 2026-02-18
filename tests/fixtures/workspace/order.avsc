@@ -1,0 +1,12 @@
+{
+  "type": "record",
+  "name": "Order",
+  "namespace": "com.example",
+  "fields": [
+    {"name": "orderId", "type": "long"},
+    {"name": "userId", "type": "long"},
+    {"name": "items", "type": {"type": "array", "items": "string"}},
+    {"name": "total", "type": "double"},
+    {"name": "shippingAddress", "type": "com.example.common.Address"}
+  ]
+}
