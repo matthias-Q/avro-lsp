@@ -273,6 +273,9 @@ mod tests {
                 },
             }),
             type_range: None,
+            namespace_range: None,
+            type_name_range: None,
+            logical_type_range: None,
         };
 
         let field2 = Field {
@@ -306,6 +309,9 @@ mod tests {
                 },
             }),
             type_range: None,
+            namespace_range: None,
+            type_name_range: None,
+            logical_type_range: None,
         };
 
         let record = RecordSchema {
@@ -324,6 +330,7 @@ mod tests {
             root: AvroType::Record(record),
             named_types: HashMap::new(),
             parse_errors: Vec::new(),
+            semantic_tokens: Vec::new(),
         };
 
         let hints = generate_inlay_hints(&schema, "");

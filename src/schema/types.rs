@@ -9,6 +9,8 @@ pub struct AvroSchema {
     pub named_types: HashMap<String, AvroType>,
     /// Errors collected during parsing (for error recovery)
     pub parse_errors: Vec<super::error::SchemaError>,
+    /// Semantic tokens captured during parsing
+    pub semantic_tokens: Vec<SemanticTokenData>,
 }
 
 /// Represents an Avro type
@@ -97,6 +99,34 @@ pub struct PrimitiveSchema {
     pub logical_type_range: Option<Range>,
 }
 
+/// Semantic token data captured during parsing
+#[derive(Debug, Clone, PartialEq)]
+pub struct SemanticTokenData {
+    pub range: Range,
+    pub token_type: SemanticTokenType,
+    pub modifiers: SemanticTokenModifiers,
+}
+
+/// Types of semantic tokens
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SemanticTokenType {
+    Keyword,    // JSON keys: "type", "name", etc.
+    Type,       // Type names: "string", "int", "Address"
+    Enum,       // Enum type names
+    Struct,     // Record type names
+    Property,   // Field names
+    EnumMember, // Enum symbol values
+}
+
+bitflags::bitflags! {
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    pub struct SemanticTokenModifiers: u32 {
+        const NONE = 0x00;
+        const DECLARATION = 0x01;
+        const READONLY = 0x02;
+    }
+}
+
 /// Represents an invalid type that failed validation during parsing
 /// Used for error recovery to allow partial AST building
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -149,6 +179,12 @@ pub struct Field {
     pub range: Option<Range>,
     #[serde(skip)]
     pub name_range: Option<Range>,
+    #[serde(skip)]
+    pub namespace_range: Option<Range>,
+    #[serde(skip)]
+    pub type_name_range: Option<Range>,
+    #[serde(skip)]
+    pub logical_type_range: Option<Range>,
     #[serde(skip)]
     pub type_range: Option<Range>,
 }

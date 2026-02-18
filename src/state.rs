@@ -367,9 +367,8 @@ impl ServerState {
         let state = self.inner.read().await;
         let doc = state.documents.get(uri)?;
         let schema = doc.schema.as_ref()?;
-        let text = &doc.text;
 
-        let tokens = crate::handlers::semantic_tokens::build_semantic_tokens(schema, text.clone());
+        let tokens = crate::handlers::semantic_tokens::build_semantic_tokens(schema);
 
         tracing::debug!("Generated {} semantic tokens for {}", tokens.len(), uri);
 

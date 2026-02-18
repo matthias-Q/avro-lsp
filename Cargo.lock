@@ -61,8 +61,10 @@ version = "0.1.11"
 dependencies = [
  "anyhow",
  "async-lsp",
+ "bitflags 2.11.0",
  "criterion",
  "futures",
+ "indexmap",
  "nom",
  "nom_locate",
  "once_cell",
