@@ -46,32 +46,32 @@ release TYPE="patch":
         NEW_VERSION="$MAJOR.$MINOR.$((PATCH + 1))"
     fi
     echo "Bumping version from $CURRENT_VERSION to v$NEW_VERSION"
-    
+
     # Update Cargo.toml
     sed -i "s/^version = \".*\"/version = \"$NEW_VERSION\"/" Cargo.toml
     cargo check
-    
+
     # Update VS Code extension package.json
     echo "Updating VS Code extension version to $NEW_VERSION"
     sed -i "s/\"version\": \".*\"/\"version\": \"$NEW_VERSION\"/" vscode-avro-lsp/package.json
-    
+
     # Commit version bumps
     git add Cargo.toml Cargo.lock vscode-avro-lsp/package.json
     git commit -m "chore(release): Release version v$NEW_VERSION"
     git tag "v$NEW_VERSION"
-    
+
     # Generate changelog
     echo "Generating changelog for v$NEW_VERSION..."
     git cliff -l --current -t "v$NEW_VERSION" --prepend CHANGELOG.md
     git add CHANGELOG.md
     git commit --amend --no-edit
     git tag -f "v$NEW_VERSION"
-    
+
     echo "Release v$NEW_VERSION created. Run 'just push-release' to push."
 
 # Push release to remote with tags
 push-release:
-    git push && git push --tags
+    git push -o 'ci.skip' && git push --tags
 
 # Build VS Code extension
 build-extension:
