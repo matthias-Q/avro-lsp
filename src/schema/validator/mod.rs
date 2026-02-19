@@ -140,6 +140,14 @@ impl AvroValidator {
             AvroType::Map(map) => {
                 self.collect_warnings_from_type(&map.values, warnings);
             }
+            AvroType::PrimitiveObject(prim) => {
+                // Check for unknown logical types
+                if let Some(warning) =
+                    logical_type_validators::check_unknown_logical_type_warning(prim)
+                {
+                    warnings.push(warning);
+                }
+            }
             _ => {
                 // Primitives, enums, fixed, etc. - no nested types to check
             }

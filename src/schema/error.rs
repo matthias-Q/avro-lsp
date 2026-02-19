@@ -82,6 +82,14 @@ pub enum SchemaError {
         suggested: Option<String>,
     },
 
+    #[error("Unknown field '{field}' in {context}")]
+    UnknownField {
+        field: String,
+        context: String,
+        range: Option<Range>,
+        suggested: Option<String>,
+    },
+
     #[error("{message}")]
     Custom {
         message: String,

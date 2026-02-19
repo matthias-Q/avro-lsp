@@ -45,6 +45,11 @@ pub fn parse_and_validate_with_workspace(
         diagnostics.push(convert_parse_error(parse_error, text));
     }
 
+    // Add warnings from parser (e.g., unknown fields)
+    for warning in &schema.warnings {
+        diagnostics.push(convert_warning(warning));
+    }
+
     // Try to validate - use workspace if provided for cross-file type checking
     let validator = AvroValidator::new();
     let validation_result = if let Some(ws) = workspace {

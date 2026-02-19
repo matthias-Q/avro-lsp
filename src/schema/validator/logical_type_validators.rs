@@ -2,6 +2,7 @@ use regex::Regex;
 
 use super::super::error::{Result, SchemaError};
 use super::super::types::{FixedSchema, PrimitiveSchema, PrimitiveType};
+use super::super::warning::SchemaWarning;
 
 pub fn validate_logical_type_for_fixed(
     _name_regex: &Regex,
@@ -95,7 +96,11 @@ pub fn validate_primitive_with_logical_type(
                     "uuid" => "string",
                     "decimal" => "bytes or fixed",
                     "duration" => "fixed",
-                    _ => "unknown",
+                    _ => {
+                        // Unknown logical type - this will be caught as a warning
+                        // Don't error here, just return Ok per Avro spec
+                        return Ok(());
+                    }
                 };
 
                 Err(SchemaError::Custom {
@@ -110,4 +115,103 @@ pub fn validate_primitive_with_logical_type(
     } else {
         Ok(())
     }
+}
+
+/// Check if a primitive has an unknown logical type value and return a warning
+pub fn check_unknown_logical_type_warning(primitive: &PrimitiveSchema) -> Option<SchemaWarning> {
+    if let Some(logical_type) = &primitive.logical_type {
+        // List of all valid logical types
+        const VALID_LOGICAL_TYPES: &[&str] = &[
+            "date",
+            "time-millis",
+            "time-micros",
+            "timestamp-millis",
+            "timestamp-micros",
+            "local-timestamp-millis",
+            "local-timestamp-micros",
+            "uuid",
+            "decimal",
+            "duration",
+        ];
+
+        // Check if this is a known logical type
+        if !VALID_LOGICAL_TYPES.contains(&logical_type.as_str()) {
+            // Unknown logical type - suggest a correction
+            let suggested = suggest_logical_type(logical_type);
+
+            return Some(SchemaWarning::InvalidLogicalType {
+                logical_type: logical_type.clone(),
+                primitive_type: format!("{:?}", primitive.primitive_type),
+                range: primitive.logical_type_range,
+                suggested,
+            });
+        }
+    }
+    None
+}
+
+/// Suggest a logical type based on edit distance
+fn suggest_logical_type(input: &str) -> Option<String> {
+    const VALID_LOGICAL_TYPES: &[&str] = &[
+        "date",
+        "time-millis",
+        "time-micros",
+        "timestamp-millis",
+        "timestamp-micros",
+        "local-timestamp-millis",
+        "local-timestamp-micros",
+        "uuid",
+        "decimal",
+        "duration",
+    ];
+
+    let mut best_match: Option<(usize, &str)> = None;
+
+    for &valid_type in VALID_LOGICAL_TYPES {
+        let distance = levenshtein_distance(input, valid_type);
+        // Allow up to 60% of input length as threshold, minimum 2
+        let input_based_threshold = ((input.len() as f64 * 0.6).ceil() as usize).max(2);
+        // Also consider the valid type length to be lenient
+        let valid_based_threshold = ((valid_type.len() as f64 * 0.6).ceil() as usize).max(2);
+        let max_distance = input_based_threshold.max(valid_based_threshold);
+
+        if distance <= max_distance {
+            match best_match {
+                None => best_match = Some((distance, valid_type)),
+                Some((best_dist, _)) if distance < best_dist => {
+                    best_match = Some((distance, valid_type))
+                }
+                _ => {}
+            }
+        }
+    }
+
+    best_match.map(|(_, lt)| lt.to_string())
+}
+
+/// Calculate Levenshtein distance between two strings
+#[allow(clippy::needless_range_loop)]
+fn levenshtein_distance(s1: &str, s2: &str) -> usize {
+    let len1 = s1.chars().count();
+    let len2 = s2.chars().count();
+    let mut matrix = vec![vec![0; len2 + 1]; len1 + 1];
+
+    for i in 0..=len1 {
+        matrix[i][0] = i;
+    }
+    for j in 0..=len2 {
+        matrix[0][j] = j;
+    }
+
+    for (i, c1) in s1.chars().enumerate() {
+        for (j, c2) in s2.chars().enumerate() {
+            let cost = if c1 == c2 { 0 } else { 1 };
+            matrix[i + 1][j + 1] = std::cmp::min(
+                std::cmp::min(matrix[i][j + 1] + 1, matrix[i + 1][j] + 1),
+                matrix[i][j] + cost,
+            );
+        }
+    }
+
+    matrix[len1][len2]
 }

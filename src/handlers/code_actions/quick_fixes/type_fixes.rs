@@ -298,3 +298,53 @@ pub(in crate::handlers::code_actions) fn create_fix_duplicate_symbol(
         .build(),
     )
 }
+
+/// Create a quick fix for unknown field name errors (typos like "logicalType2" → "logicalType")
+pub(in crate::handlers::code_actions) fn create_fix_unknown_field(
+    uri: &Url,
+    diagnostic: &Diagnostic,
+    invalid_field: &str,
+    suggested_field: Option<&str>,
+) -> Option<CodeAction> {
+    let fixed_field = suggested_field?;
+    let field_range = diagnostic.range;
+
+    // The diagnostic range is for the field name content (without quotes),
+    // so we replace with just the corrected field name (no quotes)
+    Some(
+        CodeActionBuilder::new(
+            uri.clone(),
+            format!("Fix typo: '{}' → '{}'", invalid_field, fixed_field),
+        )
+        .with_kind(CodeActionKind::QUICKFIX)
+        .with_diagnostics(vec![diagnostic.clone()])
+        .preferred()
+        .add_edit(field_range, fixed_field.to_string())
+        .build(),
+    )
+}
+
+/// Create a quick fix for invalid logical type value warnings (typos like "unite_uuid" → "uuid")
+pub(in crate::handlers::code_actions) fn create_fix_invalid_logical_type_value(
+    uri: &Url,
+    diagnostic: &Diagnostic,
+    invalid_value: &str,
+    suggested_value: Option<&str>,
+) -> Option<CodeAction> {
+    let fixed_value = suggested_value?;
+    let value_range = diagnostic.range;
+
+    // The diagnostic range is for the logical type value content (without quotes),
+    // so we replace with just the corrected value (no quotes)
+    Some(
+        CodeActionBuilder::new(
+            uri.clone(),
+            format!("Fix logical type: '{}' → '{}'", invalid_value, fixed_value),
+        )
+        .with_kind(CodeActionKind::QUICKFIX)
+        .with_diagnostics(vec![diagnostic.clone()])
+        .preferred()
+        .add_edit(value_range, fixed_value.to_string())
+        .build(),
+    )
+}

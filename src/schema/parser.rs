@@ -3,10 +3,12 @@ use std::collections::HashMap;
 use super::error::{Result, SchemaError};
 use super::json_parser::{JsonValue, parse_json};
 use super::types::*;
+use super::warning::SchemaWarning;
 
 pub struct AvroParser {
     named_types: HashMap<String, AvroType>,
     errors: Vec<SchemaError>,
+    warnings: Vec<SchemaWarning>,
     tokens: Vec<SemanticTokenData>,
 }
 
@@ -15,6 +17,7 @@ impl AvroParser {
         Self {
             named_types: HashMap::new(),
             errors: Vec::new(),
+            warnings: Vec::new(),
             tokens: Vec::with_capacity(64), // Preallocate for typical schemas
         }
     }
@@ -52,7 +55,7 @@ impl AvroParser {
             named_types: self.named_types.clone(),
             parse_errors: self.errors.clone(),
             semantic_tokens: self.tokens.clone(),
-            warnings: Vec::new(), // Warnings are added during validation
+            warnings: self.warnings.clone(), // Include parser warnings
         })
     }
 
@@ -129,10 +132,15 @@ impl AvroParser {
                     "fixed" => self.parse_fixed(obj, value.range()),
                     prim if PrimitiveType::parse(prim).is_some() => {
                         // Check if this primitive has logicalType or precision/scale attributes
-                        if obj.contains_key("logicalType")
+                        // OR if it has any extra fields (for error detection)
+                        let has_logical_attrs = obj.contains_key("logicalType")
                             || obj.contains_key("precision")
-                            || obj.contains_key("scale")
-                        {
+                            || obj.contains_key("scale");
+
+                        // Check if there are any fields beyond just "type"
+                        let has_extra_fields = obj.keys().any(|k| k != "type");
+
+                        if has_logical_attrs || has_extra_fields {
                             self.parse_primitive_object(obj, value.range())
                         } else {
                             Ok(AvroType::Primitive(PrimitiveType::parse(prim).unwrap()))
@@ -900,6 +908,9 @@ impl AvroParser {
             }
         });
 
+        // Check for unknown fields in primitive types
+        self.check_unknown_fields_primitive(obj);
+
         Ok(AvroType::PrimitiveObject(PrimitiveSchema {
             type_name,
             primitive_type,
@@ -935,6 +946,77 @@ impl AvroParser {
         obj.get(key)
             .and_then(|(_, v)| v.as_string())
             .map(String::from)
+    }
+
+    /// Check for unknown fields in primitive type definitions
+    fn check_unknown_fields_primitive(
+        &mut self,
+        obj: &indexmap::IndexMap<String, (async_lsp::lsp_types::Range, JsonValue)>,
+    ) {
+        // Valid fields for primitive types with logical types
+        const VALID_FIELDS: &[&str] = &["type", "logicalType", "precision", "scale"];
+
+        for (field, (range, _)) in obj {
+            if !VALID_FIELDS.contains(&field.as_str()) {
+                // Check if this looks like a typo of a valid field
+                let suggested = Self::suggest_field_name(field, VALID_FIELDS);
+
+                self.errors.push(SchemaError::UnknownField {
+                    field: field.clone(),
+                    context: "primitive schema definition".to_string(),
+                    range: Some(*range),
+                    suggested,
+                });
+            }
+        }
+    }
+
+    /// Suggest a field name based on edit distance
+    fn suggest_field_name(input: &str, valid_fields: &[&str]) -> Option<String> {
+        let mut best_match: Option<(usize, &str)> = None;
+
+        for &valid_field in valid_fields {
+            let distance = Self::levenshtein_distance(input, valid_field);
+            // Only suggest if distance is small (typo-like)
+            if distance <= 2 {
+                match best_match {
+                    None => best_match = Some((distance, valid_field)),
+                    Some((best_dist, _)) if distance < best_dist => {
+                        best_match = Some((distance, valid_field))
+                    }
+                    _ => {}
+                }
+            }
+        }
+
+        best_match.map(|(_, field)| field.to_string())
+    }
+
+    /// Calculate Levenshtein distance between two strings
+    #[allow(clippy::needless_range_loop)]
+    fn levenshtein_distance(s1: &str, s2: &str) -> usize {
+        let len1 = s1.chars().count();
+        let len2 = s2.chars().count();
+        let mut matrix = vec![vec![0; len2 + 1]; len1 + 1];
+
+        for i in 0..=len1 {
+            matrix[i][0] = i;
+        }
+        for j in 0..=len2 {
+            matrix[0][j] = j;
+        }
+
+        for (i, c1) in s1.chars().enumerate() {
+            for (j, c2) in s2.chars().enumerate() {
+                let cost = if c1 == c2 { 0 } else { 1 };
+                matrix[i + 1][j + 1] = std::cmp::min(
+                    std::cmp::min(matrix[i][j + 1] + 1, matrix[i + 1][j] + 1),
+                    matrix[i][j] + cost,
+                );
+            }
+        }
+
+        matrix[len1][len2]
     }
 
     fn get_optional_string_array(

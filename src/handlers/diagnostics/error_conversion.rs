@@ -76,6 +76,47 @@ pub(super) fn convert_parse_error(error: &SchemaError, text: &str) -> Diagnostic
             };
             (range, msg)
         }
+        SchemaError::UnknownField {
+            field,
+            context,
+            range: Some(r),
+            suggested,
+        } => {
+            tracing::debug!("Using position from UnknownField: {:?}", r);
+            let msg = if let Some(suggestion) = suggested {
+                format!(
+                    "Unknown field '{}' in {}. Did you mean '{}'?",
+                    field, context, suggestion
+                )
+            } else {
+                format!("Unknown field '{}' in {}", field, context)
+            };
+            (*r, msg)
+        }
+        SchemaError::UnknownField {
+            field,
+            context,
+            range: None,
+            suggested,
+        } => {
+            let (pos, _) = extract_error_position_with_context(&error_msg, text);
+            let range = Range {
+                start: pos,
+                end: Position {
+                    line: pos.line,
+                    character: pos.character + 1,
+                },
+            };
+            let msg = if let Some(suggestion) = suggested {
+                format!(
+                    "Unknown field '{}' in {}. Did you mean '{}'?",
+                    field, context, suggestion
+                )
+            } else {
+                format!("Unknown field '{}' in {}", field, context)
+            };
+            (range, msg)
+        }
         SchemaError::DuplicateJsonKey {
             key,
             first_occurrence: _,

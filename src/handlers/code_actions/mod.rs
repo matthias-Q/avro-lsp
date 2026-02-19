@@ -18,11 +18,12 @@ use helpers::is_union;
 use quick_fixes::{
     create_fix_duplicate_symbol, create_fix_duplicate_union_type, create_fix_invalid_array_default,
     create_fix_invalid_boolean_default, create_fix_invalid_decimal_scale,
-    create_fix_invalid_duration_size, create_fix_invalid_enum_default, create_fix_invalid_name,
+    create_fix_invalid_duration_size, create_fix_invalid_enum_default,
+    create_fix_invalid_logical_type_value, create_fix_invalid_name,
     create_fix_invalid_name_structured, create_fix_invalid_namespace,
     create_fix_invalid_namespace_structured, create_fix_invalid_primitive_type,
     create_fix_logical_type, create_fix_missing_decimal_precision, create_fix_missing_fields,
-    create_fix_nested_union,
+    create_fix_nested_union, create_fix_unknown_field,
 };
 use refactoring::{
     create_add_default_value_action, create_add_doc_action, create_add_doc_action_enum,
@@ -112,7 +113,7 @@ pub fn get_quick_fixes_from_diagnostics(
     uri: &Url,
     diagnostics: &[Diagnostic],
 ) -> Vec<CodeAction> {
-    use crate::schema::SchemaError;
+    use crate::schema::{SchemaError, SchemaWarning};
 
     tracing::debug!(
         "get_quick_fixes_from_diagnostics called with {} diagnostics",
@@ -137,7 +138,21 @@ pub fn get_quick_fixes_from_diagnostics(
             result.ok()
         });
 
+        // Try to deserialize structured warning data from diagnostic
+        let structured_warning: Option<SchemaWarning> = diagnostic.data.as_ref().and_then(|data| {
+            let result = serde_json::from_value::<SchemaWarning>(data.clone());
+            match &result {
+                Ok(warn) => tracing::info!("Successfully deserialized SchemaWarning: {:?}", warn),
+                Err(e) => tracing::debug!("Not a SchemaWarning: {}", e),
+            }
+            result.ok()
+        });
+
         tracing::info!("Structured error is Some: {}", structured_error.is_some());
+        tracing::info!(
+            "Structured warning is Some: {}",
+            structured_warning.is_some()
+        );
 
         if let Some(error) = structured_error {
             tracing::info!("Found structured error data, matching on type...");
@@ -199,6 +214,16 @@ pub fn get_quick_fixes_from_diagnostics(
                         &type_name,
                         suggested.as_deref(),
                     ) {
+                        actions.push(fix);
+                    }
+                }
+                SchemaError::UnknownField {
+                    field, suggested, ..
+                } => {
+                    tracing::debug!("Unknown field error: {} -> {:?}", field, suggested);
+                    if let Some(fix) =
+                        create_fix_unknown_field(uri, diagnostic, &field, suggested.as_deref())
+                    {
                         actions.push(fix);
                     }
                 }
@@ -284,6 +309,33 @@ pub fn get_quick_fixes_from_diagnostics(
                 }
                 _ => {
                     tracing::debug!("No quick fix available for error type");
+                }
+            }
+        } else if let Some(warning) = structured_warning {
+            tracing::info!("Found structured warning data, matching on type...");
+
+            match warning {
+                SchemaWarning::InvalidLogicalType {
+                    logical_type,
+                    suggested,
+                    ..
+                } => {
+                    tracing::debug!(
+                        "Invalid logical type warning: {} -> {:?}",
+                        logical_type,
+                        suggested
+                    );
+                    if let Some(fix) = create_fix_invalid_logical_type_value(
+                        uri,
+                        diagnostic,
+                        &logical_type,
+                        suggested.as_deref(),
+                    ) {
+                        actions.push(fix);
+                    }
+                }
+                _ => {
+                    tracing::debug!("No quick fix available for warning type");
                 }
             }
         } else {
