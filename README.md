@@ -326,6 +326,66 @@ Configuration will be similar to the Neovim setup - point the editor's LSP clien
 
 ## Usage
 
+### CLI Linting
+
+The LSP server also includes a standalone CLI linter for validating Avro schemas outside of an editor:
+
+```bash
+# Lint a single file
+avro-lsp lint schema.avsc
+
+# Lint a directory (recursive)
+avro-lsp lint schemas/
+
+# Lint with workspace mode (cross-file type resolution)
+avro-lsp lint --workspace schemas/
+
+# Show help
+avro-lsp lint --help
+```
+
+The linter provides beautiful error output with:
+- Source code snippets showing exact error locations
+- Syntax highlighting and color-coded severity
+- Clear error messages with context
+
+Exit codes:
+- `0` - All files validated successfully
+- `1` - Validation errors found
+- `2` - Fatal error (file not found, invalid path, etc.)
+
+### Docker Image
+
+A Docker image is available for CI/CD pipelines and containerized environments:
+
+```bash
+# Pull from GitLab Container Registry
+docker pull gitlab-dr.build-unite.unite.eu/matthias.queitsch/avro-lsp:latest
+
+# Lint schemas in current directory
+docker run -v $(pwd)/schemas:/workspace gitlab-dr.build-unite.unite.eu/matthias.queitsch/avro-lsp:latest
+
+# Lint with custom command
+docker run -v $(pwd):/workspace gitlab-dr.build-unite.unite.eu/matthias.queitsch/avro-lsp:latest \
+  avro-lsp lint --workspace /workspace/schemas
+```
+
+**GitLab CI Integration:**
+
+See [gitlab-ci-template.yml](gitlab-ci-template.yml) for ready-to-use CI job templates. Simply copy a job definition to your project's `.gitlab-ci.yml`:
+
+```yaml
+lint-avro-schemas:
+  stage: validate
+  image: gitlab-dr.build-unite.unite.eu/matthias.queitsch/avro-lsp:latest
+  script:
+    - avro-lsp lint --workspace schemas/
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+```
+
+### LSP Server Mode
+
 The LSP server runs as a background process managed by your editor. It validates Avro schemas in real-time as you edit `.avsc` files.
 
 ### Example

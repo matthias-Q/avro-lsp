@@ -1,0 +1,121 @@
+# GitLab CI template for linting Avro schemas with avro-lsp
+# 
+# Ready-to-use GitLab CI job definitions for validating Avro schema files (.avsc)
+# using the avro-lsp Docker image from GitLab Container Registry.
+#
+# Usage:
+#   1. Copy the desired job(s) to your project's .gitlab-ci.yml
+#   2. Adjust paths to match your project structure (default: schemas/)
+#   3. Customize rules/triggers as needed
+#
+# The default image URL points to the official avro-lsp registry:
+#   gitlab-dr.build-unite.unite.eu/matthias.queitsch/avro-lsp:latest
+
+stages:
+  - validate
+
+# Standard linting job - Validates all .avsc files with workspace mode
+# Runs on merge requests and main branch
+lint-avro-schemas:
+  stage: validate
+  image: gitlab-dr.build-unite.unite.eu/matthias.queitsch/avro-lsp:latest
+  script:
+    - avro-lsp lint --workspace schemas/
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
+
+# Optimized: Only runs when .avsc files change
+lint-avro-schemas-on-change:
+  stage: validate
+  image: gitlab-dr.build-unite.unite.eu/matthias.queitsch/avro-lsp:latest
+  script:
+    - avro-lsp lint --workspace schemas/
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+      changes:
+        - "**/*.avsc"
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
+      changes:
+        - "**/*.avsc"
+
+# Lint specific files or multiple directories
+lint-avro-schemas-custom-paths:
+  stage: validate
+  image: gitlab-dr.build-unite.unite.eu/matthias.queitsch/avro-lsp:latest
+  script:
+    # Lint specific files
+    - avro-lsp lint schemas/user.avsc schemas/order.avsc
+    # Or lint multiple directories
+    - avro-lsp lint --workspace src/main/avro/
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+
+# Custom working directory (useful for non-standard project layouts)
+lint-avro-schemas-custom-workdir:
+  stage: validate
+  image: gitlab-dr.build-unite.unite.eu/matthias.queitsch/avro-lsp:latest
+  variables:
+    SCHEMA_DIR: "src/main/avro"
+  script:
+    - cd $SCHEMA_DIR
+    - avro-lsp lint --workspace .
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+
+# Save lint output as artifact for debugging failures
+lint-avro-schemas-with-report:
+  stage: validate
+  image: gitlab-dr.build-unite.unite.eu/matthias.queitsch/avro-lsp:latest
+  script:
+    - avro-lsp lint --workspace schemas/ 2>&1 | tee lint-report.txt
+  artifacts:
+    when: on_failure
+    paths:
+      - lint-report.txt
+    expire_in: 1 week
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+
+# Warning mode - Allow failures but still run checks
+lint-avro-schemas-warn-only:
+  stage: validate
+  image: gitlab-dr.build-unite.unite.eu/matthias.queitsch/avro-lsp:latest
+  script:
+    - avro-lsp lint --workspace schemas/
+  allow_failure: true
+  rules:
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
+
+# Using a specific version tag instead of latest
+lint-avro-schemas-pinned-version:
+  stage: validate
+  image: gitlab-dr.build-unite.unite.eu/matthias.queitsch/avro-lsp:v0.1.22
+  script:
+    - avro-lsp lint --workspace schemas/
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+
+# Using avro-lsp from a different/external registry
+lint-avro-schemas-external-registry:
+  stage: validate
+  image: registry.example.com/team/avro-lsp:latest
+  before_script:
+    # Login if registry requires authentication
+    - echo "$EXTERNAL_REGISTRY_TOKEN" | docker login registry.example.com -u "$EXTERNAL_REGISTRY_USER" --password-stdin
+  script:
+    - avro-lsp lint --workspace schemas/
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+
+# Using the image from this project's own registry (if you built it locally)
+# This assumes the Docker image was built in this same repository
+lint-avro-schemas-local-image:
+  stage: validate
+  image: ${CI_REGISTRY_IMAGE}:latest
+  script:
+    - avro-lsp lint --workspace schemas/
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
+
