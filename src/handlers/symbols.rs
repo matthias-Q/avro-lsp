@@ -20,12 +20,16 @@ pub fn create_document_symbols(schema: &AvroSchema, text: &str) -> Vec<DocumentS
 fn create_symbol_from_type(name: &str, avro_type: &AvroType, text: &str) -> Option<DocumentSymbol> {
     match avro_type {
         AvroType::Record(record) => {
-            let range = find_name_range(text, name)?;
+            // Use pre-computed name_range from the AST; fall back to text scan only if missing
+            let range = record.name_range.or_else(|| find_name_range(text, name))?;
             let mut children = Vec::new();
 
-            // Add fields as children
+            // Add fields as children using pre-computed field name ranges
             for field in &record.fields {
-                if let Some(field_range) = find_name_range(text, &field.name) {
+                let field_range = field
+                    .name_range
+                    .or_else(|| find_name_range(text, &field.name));
+                if let Some(field_range) = field_range {
                     #[allow(deprecated)]
                     children.push(DocumentSymbol {
                         name: field.name.clone(),
@@ -57,10 +61,13 @@ fn create_symbol_from_type(name: &str, avro_type: &AvroType, text: &str) -> Opti
             })
         }
         AvroType::Enum(enum_type) => {
-            let range = find_name_range(text, name)?;
+            // Use pre-computed name_range from the AST; fall back to text scan only if missing
+            let range = enum_type
+                .name_range
+                .or_else(|| find_name_range(text, name))?;
             let mut children = Vec::new();
 
-            // Add symbols as children
+            // Enum symbols have no stored range in the AST; use text scan
             for symbol in &enum_type.symbols {
                 if let Some(symbol_range) = find_name_range(text, symbol) {
                     #[allow(deprecated)]
@@ -94,7 +101,8 @@ fn create_symbol_from_type(name: &str, avro_type: &AvroType, text: &str) -> Opti
             })
         }
         AvroType::Fixed(fixed) => {
-            let range = find_name_range(text, name)?;
+            // Use pre-computed name_range from the AST; fall back to text scan only if missing
+            let range = fixed.name_range.or_else(|| find_name_range(text, name))?;
 
             #[allow(deprecated)]
             Some(DocumentSymbol {
@@ -112,7 +120,9 @@ fn create_symbol_from_type(name: &str, avro_type: &AvroType, text: &str) -> Opti
     }
 }
 
-/// Find the range of a name in the text
+/// Find the range of a name in the text by scanning for it as a quoted string.
+/// This is only used as a fallback when the AST does not carry a pre-computed range,
+/// and for enum symbols which have no stored range.
 pub fn find_name_range(text: &str, name: &str) -> Option<Range> {
     // Helper to convert byte offset to Position
     fn offset_to_position(text: &str, offset: usize) -> Position {

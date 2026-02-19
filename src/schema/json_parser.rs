@@ -29,8 +29,8 @@ pub enum JsonValue {
     Object {
         map: indexmap::IndexMap<String, (Range, JsonValue)>,
         range: Range,
-        /// List of ALL key-range pairs (including duplicates)
-        all_keys: Vec<(String, Range)>,
+        /// Duplicate key errors detected during parsing: (key, first_range, duplicate_range)
+        duplicate_keys: Vec<(String, Range, Range)>,
     },
 }
 
@@ -317,15 +317,17 @@ fn parse_object(input: Span) -> IResult<Span, JsonValue> {
     let (input, _) = char('}')(input)?;
     let range = make_range(start, input);
 
-    // Convert to IndexMap with key ranges
-    // Store ALL pairs (including duplicates) for later validation
+    // Convert to IndexMap with key ranges, detecting duplicates inline
     let mut map = indexmap::IndexMap::new();
-    let mut all_keys = Vec::new();
+    let mut duplicate_keys = Vec::new();
 
     for (key, key_range, value) in pairs {
-        all_keys.push((key.clone(), key_range));
-        // Keep first occurrence of each key
-        map.entry(key).or_insert((key_range, value));
+        if let Some((first_range, _)) = map.get(&key) {
+            // Duplicate: record the first occurrence range and the duplicate range
+            duplicate_keys.push((key, *first_range, key_range));
+        } else {
+            map.insert(key, (key_range, value));
+        }
     }
 
     Ok((
@@ -333,7 +335,7 @@ fn parse_object(input: Span) -> IResult<Span, JsonValue> {
         JsonValue::Object {
             map,
             range,
-            all_keys,
+            duplicate_keys,
         },
     ))
 }

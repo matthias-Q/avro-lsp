@@ -1,5 +1,13 @@
+use std::sync::OnceLock;
+
 use async_lsp::lsp_types::{Position, Range, TextEdit};
 use async_lsp::{ErrorCode, ResponseError};
+
+static TRAILING_COMMA_RE: OnceLock<regex::Regex> = OnceLock::new();
+
+fn trailing_comma_re() -> &'static regex::Regex {
+    TRAILING_COMMA_RE.get_or_init(|| regex::Regex::new(r",(\s*[}\]])").unwrap())
+}
 
 /// Format Avro schema document with proper JSON formatting
 /// Removes trailing commas and formats with 2-space indentation
@@ -50,7 +58,5 @@ pub fn format_document(text: &str) -> Result<TextEdit, ResponseError> {
 /// Remove trailing commas from JSON text
 /// This handles cases like {"foo": "bar",} which are invalid JSON
 pub fn remove_trailing_commas(text: &str) -> String {
-    // Strategy: Use regex to find commas followed by optional whitespace and then } or ]
-    let re = regex::Regex::new(r",(\s*[}\]])").unwrap();
-    re.replace_all(text, "$1").to_string()
+    trailing_comma_re().replace_all(text, "$1").to_string()
 }

@@ -32,6 +32,9 @@ pub struct Workspace {
     /// Global type registry: maps type names to their definitions
     /// Keys can be either simple names or fully-qualified names
     global_types: HashMap<String, TypeInfo>,
+    /// Inverted reference index: qualified type name → all locations that reference it.
+    /// Updated incrementally on update_file / remove_file.
+    ref_index: HashMap<String, Vec<Location>>,
 }
 
 impl Workspace {
@@ -41,6 +44,7 @@ impl Workspace {
             root_path: None,
             schemas: HashMap::new(),
             global_types: HashMap::new(),
+            ref_index: HashMap::new(),
         }
     }
 
@@ -50,6 +54,7 @@ impl Workspace {
             root_path: Some(root_path),
             schemas: HashMap::new(),
             global_types: HashMap::new(),
+            ref_index: HashMap::new(),
         }
     }
 
@@ -66,11 +71,16 @@ impl Workspace {
             .parse(&text)
             .map_err(|e| format!("Parse error: {}", e))?;
 
+        // Remove stale ref-index entries for this file before re-indexing
+        self.unindex_refs(&uri);
+
         // Update global type registry
         self.register_types(&uri, &schema);
 
-        // Store the schema
-        self.schemas.insert(uri, schema);
+        // Store the schema, then build the ref-index for it.
+        // We need global_types to be up to date for resolve_type, so insert first.
+        self.schemas.insert(uri.clone(), schema);
+        self.index_refs(&uri);
 
         Ok(())
     }
@@ -81,6 +91,8 @@ impl Workspace {
         if let Some(schema) = self.schemas.remove(uri) {
             // Remove types defined in this file from global registry
             self.unregister_types(uri, &schema);
+            // Remove ref-index entries for this file
+            self.unindex_refs(uri);
         }
     }
 
@@ -130,6 +142,122 @@ impl Workspace {
     fn unregister_types(&mut self, uri: &Url, _schema: &AvroSchema) {
         // Remove all types that were defined in this file
         self.global_types.retain(|_, info| &info.defined_in != uri);
+    }
+
+    /// Build ref-index entries for all TypeRefs in the given file.
+    /// Must be called after the schema has been inserted into self.schemas
+    /// and global_types is up to date.
+    fn index_refs(&mut self, uri: &Url) {
+        let Some(schema) = self.schemas.get(uri) else {
+            return;
+        };
+        // Capture the file's namespace so we can resolve simple names correctly
+        let file_namespace = self.get_schema_namespace(&schema.root);
+        // Collect (qualified_name, location) pairs without holding a borrow on self
+        let mut entries: Vec<(String, Location)> = Vec::new();
+        Self::collect_typerefs_for_index(
+            &schema.root,
+            uri,
+            &self.global_types,
+            file_namespace.as_deref(),
+            &mut entries,
+        );
+        for (qualified_name, location) in entries {
+            self.ref_index
+                .entry(qualified_name)
+                .or_default()
+                .push(location);
+        }
+    }
+
+    /// Remove all ref-index entries that originate from the given file.
+    fn unindex_refs(&mut self, uri: &Url) {
+        for locations in self.ref_index.values_mut() {
+            locations.retain(|loc| &loc.uri != uri);
+        }
+        // Drop empty vecs to keep memory tidy
+        self.ref_index.retain(|_, v| !v.is_empty());
+    }
+
+    /// Recursively walk an AvroType, resolving every TypeRef and recording
+    /// (qualified_name → Location) pairs into `out`.
+    /// `file_namespace`: the namespace of the file being indexed (for simple-name resolution).
+    fn collect_typerefs_for_index(
+        avro_type: &AvroType,
+        uri: &Url,
+        global_types: &HashMap<String, TypeInfo>,
+        file_namespace: Option<&str>,
+        out: &mut Vec<(String, Location)>,
+    ) {
+        match avro_type {
+            AvroType::TypeRef(type_ref) => {
+                // Mirror resolve_type logic: fully-qualified → direct lookup;
+                // simple name with namespace → try "ns.name"; no namespace → only local.
+                let resolved_qualified = if type_ref.name.contains('.') {
+                    // Fully qualified: look up directly
+                    global_types
+                        .get(&type_ref.name)
+                        .map(|info| info.qualified_name.as_str())
+                        .unwrap_or(&type_ref.name)
+                } else if let Some(ns) = file_namespace {
+                    // Namespaced file: try "ns.simpleName"
+                    let qualified = format!("{}.{}", ns, &type_ref.name);
+                    global_types
+                        .get(&qualified)
+                        .map(|info| info.qualified_name.as_str())
+                        .unwrap_or(&type_ref.name)
+                } else {
+                    // No namespace: this file can only reference types local to itself.
+                    // Don't index these into the cross-file ref-index.
+                    return;
+                };
+
+                if let Some(range) = type_ref.range {
+                    out.push((
+                        resolved_qualified.to_string(),
+                        Location {
+                            uri: uri.clone(),
+                            range,
+                        },
+                    ));
+                }
+            }
+            AvroType::Record(record) => {
+                for field in &record.fields {
+                    Self::collect_typerefs_for_index(
+                        &field.field_type,
+                        uri,
+                        global_types,
+                        file_namespace,
+                        out,
+                    );
+                }
+            }
+            AvroType::Array(array) => {
+                Self::collect_typerefs_for_index(
+                    &array.items,
+                    uri,
+                    global_types,
+                    file_namespace,
+                    out,
+                );
+            }
+            AvroType::Map(map) => {
+                Self::collect_typerefs_for_index(
+                    &map.values,
+                    uri,
+                    global_types,
+                    file_namespace,
+                    out,
+                );
+            }
+            AvroType::Union(UnionSchema { types, .. }) => {
+                for t in types {
+                    Self::collect_typerefs_for_index(t, uri, global_types, file_namespace, out);
+                }
+            }
+            _ => {}
+        }
     }
 
     /// Get type information by qualified name
@@ -188,7 +316,10 @@ impl Workspace {
 
         // Not local - use namespace-aware resolution
         if let Some(ns) = namespace {
-            // Current file has a namespace - try qualified lookup
+            // Current file has a namespace - try qualified lookup.
+            // Build the qualified key on the stack to avoid a heap allocation on
+            // the happy path: concatenate into a small stack buffer via format! only
+            // when we know we need it.
             let qualified = format!("{}.{}", ns, name);
             if let Some(type_info) = self.global_types.get(&qualified) {
                 return Some(type_info);
@@ -199,7 +330,7 @@ impl Workspace {
         }
 
         // Current file has no namespace - can only reference types in same file
-        // (already handled above in local check at line 171-182)
+        // (already handled above in local check)
         None
     }
 
@@ -213,222 +344,34 @@ impl Workspace {
         }
     }
 
-    /// Find all references to a type across the workspace
-    /// source_uri: The file where the type is defined/being searched from
-    #[allow(dead_code)] // Will be used for cross-file find references
+    /// Find all references to a type across the workspace.
+    /// source_uri: The file where the type is defined/being searched from.
+    /// Uses the pre-built inverted ref-index for O(1) lookup.
+    #[allow(dead_code)]
     pub fn find_all_references_from(&self, type_name: &str, source_uri: &Url) -> Vec<Location> {
-        // Resolve the type from the source file to get the qualified name we're looking for
         let target_qualified_name = self
             .resolve_type(type_name, source_uri)
-            .map(|info| info.qualified_name.clone())
-            .unwrap_or_else(|| type_name.to_string());
-
-        let mut locations = Vec::new();
-
-        for (uri, schema) in &self.schemas {
-            locations.extend(self.find_references_in_schema_by_qualified_name(
-                uri,
-                schema,
-                &target_qualified_name,
-            ));
-        }
-
-        locations
-    }
-
-    /// Legacy method - kept for backward compatibility
-    /// Note: This may not correctly handle namespace isolation
-    #[allow(dead_code)]
-    pub fn find_all_references(&self, type_name: &str) -> Vec<Location> {
-        let mut locations = Vec::new();
-
-        for (uri, schema) in &self.schemas {
-            // Without source context, we can't properly resolve the qualified name
-            // This is a limitation of this API
-            locations.extend(self.find_references_in_schema(uri, schema, type_name));
-        }
-
-        locations
-    }
-
-    /// Find references by comparing qualified names directly
-    fn find_references_in_schema_by_qualified_name(
-        &self,
-        uri: &Url,
-        schema: &AvroSchema,
-        target_qualified_name: &str,
-    ) -> Vec<Location> {
-        let mut locations = Vec::new();
-        self.collect_type_refs_by_qualified_name(
-            &schema.root,
-            target_qualified_name,
-            uri,
-            &mut locations,
-        );
-        locations
-    }
-
-    /// Find references to a type within a specific schema
-    #[allow(dead_code)] // Helper for find_all_references
-    fn find_references_in_schema(
-        &self,
-        uri: &Url,
-        schema: &AvroSchema,
-        type_name: &str,
-    ) -> Vec<Location> {
-        // Resolve from the perspective of the file being searched
-        let target_qualified_name = self
-            .resolve_type(type_name, uri)
             .map(|info| info.qualified_name.as_str())
             .unwrap_or(type_name);
 
-        let mut locations = Vec::new();
-        self.collect_type_refs(
-            &schema.root,
-            type_name,
-            target_qualified_name,
-            uri,
-            &mut locations,
-        );
-        locations
+        self.ref_index
+            .get(target_qualified_name)
+            .cloned()
+            .unwrap_or_default()
     }
 
-    /// Recursively collect type references by comparing resolved qualified names
-    fn collect_type_refs_by_qualified_name(
-        &self,
-        avro_type: &AvroType,
-        target_qualified_name: &str,
-        uri: &Url,
-        locations: &mut Vec<Location>,
-    ) {
-        match avro_type {
-            AvroType::TypeRef(type_ref) => {
-                // Resolve this TypeRef and compare qualified names
-                let matches = if let Some(resolved) = self.resolve_type(&type_ref.name, uri) {
-                    resolved.qualified_name == target_qualified_name
-                } else {
-                    false
-                };
+    /// Legacy method - kept for backward compatibility.
+    /// Uses the pre-built inverted ref-index for O(1) lookup.
+    #[allow(dead_code)]
+    pub fn find_all_references(&self, type_name: &str) -> Vec<Location> {
+        // Try to find the qualified name via simple name lookup in global_types
+        let target = self
+            .global_types
+            .get(type_name)
+            .map(|info| info.qualified_name.as_str())
+            .unwrap_or(type_name);
 
-                if matches && let Some(range) = type_ref.range {
-                    locations.push(Location {
-                        uri: uri.clone(),
-                        range,
-                    });
-                }
-            }
-            AvroType::Record(record) => {
-                for field in &record.fields {
-                    self.collect_type_refs_by_qualified_name(
-                        &field.field_type,
-                        target_qualified_name,
-                        uri,
-                        locations,
-                    );
-                }
-            }
-            AvroType::Array(array) => {
-                self.collect_type_refs_by_qualified_name(
-                    &array.items,
-                    target_qualified_name,
-                    uri,
-                    locations,
-                );
-            }
-            AvroType::Map(map) => {
-                self.collect_type_refs_by_qualified_name(
-                    &map.values,
-                    target_qualified_name,
-                    uri,
-                    locations,
-                );
-            }
-            AvroType::Union(UnionSchema { types, .. }) => {
-                for t in types {
-                    self.collect_type_refs_by_qualified_name(
-                        t,
-                        target_qualified_name,
-                        uri,
-                        locations,
-                    );
-                }
-            }
-            _ => {}
-        }
-    }
-
-    /// Recursively collect type references
-    /// Matches by resolving TypeRefs and comparing qualified names
-    #[allow(dead_code)] // Helper for find_references_in_schema
-    fn collect_type_refs(
-        &self,
-        avro_type: &AvroType,
-        _target_simple_name: &str,
-        target_qualified_name: &str,
-        uri: &Url,
-        locations: &mut Vec<Location>,
-    ) {
-        match avro_type {
-            AvroType::TypeRef(type_ref) => {
-                // Try resolving this TypeRef to see if it points to the same qualified type
-                let matches = if let Some(resolved) = self.resolve_type(&type_ref.name, uri) {
-                    // Compare resolved qualified names
-                    resolved.qualified_name == target_qualified_name
-                } else {
-                    // If resolution fails, this TypeRef doesn't point to a valid type
-                    // Don't match it
-                    false
-                };
-
-                if matches && let Some(range) = type_ref.range {
-                    locations.push(Location {
-                        uri: uri.clone(),
-                        range,
-                    });
-                }
-            }
-            AvroType::Record(record) => {
-                for field in &record.fields {
-                    self.collect_type_refs(
-                        &field.field_type,
-                        _target_simple_name,
-                        target_qualified_name,
-                        uri,
-                        locations,
-                    );
-                }
-            }
-            AvroType::Array(array) => {
-                self.collect_type_refs(
-                    &array.items,
-                    _target_simple_name,
-                    target_qualified_name,
-                    uri,
-                    locations,
-                );
-            }
-            AvroType::Map(map) => {
-                self.collect_type_refs(
-                    &map.values,
-                    _target_simple_name,
-                    target_qualified_name,
-                    uri,
-                    locations,
-                );
-            }
-            AvroType::Union(UnionSchema { types, .. }) => {
-                for t in types {
-                    self.collect_type_refs(
-                        t,
-                        _target_simple_name,
-                        target_qualified_name,
-                        uri,
-                        locations,
-                    );
-                }
-            }
-            _ => {}
-        }
+        self.ref_index.get(target).cloned().unwrap_or_default()
     }
 
     /// Validate all schemas in the workspace

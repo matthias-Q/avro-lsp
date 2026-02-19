@@ -42,8 +42,8 @@ impl AvroParser {
             range: None,
         })?;
 
-        // Check for duplicate keys in the JSON structure
-        self.check_duplicate_keys(&json);
+        // Collect duplicate key errors detected inline during JSON parsing
+        self.collect_duplicate_key_errors(&json);
 
         let root = self.parse_type(&json)?;
 
@@ -975,42 +975,32 @@ impl AvroParser {
         }
     }
 
-    /// Check for duplicate keys in JSON objects recursively
-    fn check_duplicate_keys(&mut self, value: &JsonValue) {
+    /// Collect duplicate key errors that were detected inline during JSON parsing
+    fn collect_duplicate_key_errors(&mut self, value: &JsonValue) {
         match value {
             JsonValue::Object {
-                map: obj, all_keys, ..
+                map,
+                duplicate_keys,
+                ..
             } => {
-                // Check for duplicates using the all_keys list
-                let mut seen_keys: HashMap<String, async_lsp::lsp_types::Range> = HashMap::new();
-
-                for (key, key_range) in all_keys {
-                    if let Some(first_range) = seen_keys.get(key) {
-                        // Found a duplicate!
-                        self.errors.push(SchemaError::DuplicateJsonKey {
-                            key: key.clone(),
-                            first_occurrence: Some(*first_range),
-                            duplicate_occurrence: Some(*key_range),
-                        });
-                    } else {
-                        seen_keys.insert(key.clone(), *key_range);
-                    }
+                for (key, first_range, duplicate_range) in duplicate_keys {
+                    self.errors.push(SchemaError::DuplicateJsonKey {
+                        key: key.clone(),
+                        first_occurrence: Some(*first_range),
+                        duplicate_occurrence: Some(*duplicate_range),
+                    });
                 }
-
-                // Recursively check nested objects
-                for (_, (_, val)) in obj.iter() {
-                    self.check_duplicate_keys(val);
+                // Recurse into values
+                for (_, (_, val)) in map.iter() {
+                    self.collect_duplicate_key_errors(val);
                 }
             }
             JsonValue::Array(items, _) => {
-                // Check each array item
                 for item in items {
-                    self.check_duplicate_keys(item);
+                    self.collect_duplicate_key_errors(item);
                 }
             }
-            _ => {
-                // Primitives don't have nested structure
-            }
+            _ => {}
         }
     }
 }

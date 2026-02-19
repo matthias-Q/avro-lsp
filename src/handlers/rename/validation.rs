@@ -1,10 +1,10 @@
 use async_lsp::ResponseError;
 
+use crate::schema::validator::name_regex;
 use crate::schema::{AvroSchema, AvroType, Field, RecordSchema, UnionSchema};
 
 pub fn validate_avro_name(name: &str) -> Result<(), ResponseError> {
-    let name_regex = regex::Regex::new(r"^[A-Za-z_][A-Za-z0-9_]*$").unwrap();
-    if !name_regex.is_match(name) {
+    if !name_regex().is_match(name) {
         return Err(ResponseError::new(
             async_lsp::ErrorCode::INVALID_PARAMS,
             format!(

@@ -1,5 +1,6 @@
 use regex::Regex;
 
+use super::name_regex;
 use crate::schema::error::{Result, SchemaError};
 
 #[allow(dead_code)]
@@ -82,11 +83,9 @@ fn fix_invalid_name(name: &str) -> String {
 }
 
 fn fix_invalid_namespace(namespace: &str) -> String {
-    let name_regex = Regex::new(r"^[A-Za-z_][A-Za-z0-9_]*$").unwrap();
-
     let valid_parts: Vec<&str> = namespace
         .split('.')
-        .filter(|part| name_regex.is_match(part))
+        .filter(|part| name_regex().is_match(part))
         .collect();
 
     if valid_parts.is_empty() {
