@@ -2,6 +2,25 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.1.21] - 2026-02-19
+
+### Features
+
+- Add logs for vscode
+
+### Bug Fixes
+
+- Fix rename with FQN resolution
+
+### Performance
+
+- Improve parsing performance
+
+### Miscellaneous Tasks
+
+- Skip CI for non tagged release push
+- *(release)* Release version v0.1.21
+
 ## [0.1.20] - 2026-02-19
 
 ### Bug Fixes
