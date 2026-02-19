@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use super::error::{Result, SchemaError};
-use super::json_parser::{parse_json, JsonValue};
+use super::json_parser::{JsonValue, parse_json};
 use super::types::*;
 use super::warning::SchemaWarning;
 
