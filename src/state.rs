@@ -348,7 +348,13 @@ impl ServerState {
 
         // Try to find hover information for this word
         if let Some(schema) = &document.schema {
-            crate::handlers::hover::generate_hover(schema, &document.text, &word)
+            crate::handlers::hover::generate_hover_with_workspace(
+                schema,
+                &document.text,
+                &word,
+                Some(uri),
+                Some(&state.workspace),
+            )
         } else {
             None
         }

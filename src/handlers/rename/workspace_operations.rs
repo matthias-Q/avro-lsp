@@ -72,31 +72,12 @@ pub fn collect_cross_file_references(
     current_uri: &Url,
     type_name: &str,
 ) -> Vec<Location> {
-    // Resolve the type from the current file's perspective to get the qualified name
-    let type_info = match workspace.resolve_type(type_name, current_uri) {
-        Some(info) => info,
-        None => return Vec::new(), // Type not found, no references
-    };
+    // Get all references using the context-aware API
+    let all_refs = workspace.find_all_references_from(type_name, current_uri);
 
-    // Get all references to the simple name
-    let all_refs = workspace.find_all_references(type_name);
-
-    // Filter references to only include those that would resolve to the SAME qualified type
+    // Filter to exclude current file (already handled locally)
     all_refs
         .into_iter()
-        .filter(|loc| {
-            // Exclude current file (already handled locally)
-            if loc.uri == *current_uri {
-                return false;
-            }
-
-            // Check if this reference would resolve to the same type
-            if let Some(resolved) = workspace.resolve_type(type_name, &loc.uri) {
-                // Compare qualified names to ensure they refer to the same type
-                resolved.qualified_name == type_info.qualified_name
-            } else {
-                false
-            }
-        })
+        .filter(|loc| loc.uri != *current_uri)
         .collect()
 }
