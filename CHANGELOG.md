@@ -2,6 +2,16 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.1.20] - 2026-02-19
+
+### Bug Fixes
+
+- Workspace references and hover respects FQN
+
+### Miscellaneous Tasks
+
+- *(release)* Release version v0.1.20
+
 ## [0.1.19] - 2026-02-19
 
 ### Features
