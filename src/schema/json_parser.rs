@@ -2,9 +2,9 @@ use async_lsp::lsp_types::{Position, Range};
 use nom::{
     IResult,
     branch::alt,
-    bytes::complete::{escaped, tag, take_while},
-    character::complete::{char, multispace0, one_of},
-    combinator::{opt, value},
+    bytes::complete::{tag, take},
+    character::complete::{char, multispace0},
+    combinator::value,
     multi::separated_list0,
     number::complete::double,
     sequence::preceded,
@@ -148,25 +148,109 @@ fn parse_number(input: Span) -> IResult<Span, JsonValue> {
     Ok((input, JsonValue::Number(n, range)))
 }
 
+/// Decode JSON escape sequences
+fn decode_json_escapes(s: &str) -> Result<String, String> {
+    let mut result = String::with_capacity(s.len());
+    let mut chars = s.chars();
+
+    while let Some(ch) = chars.next() {
+        if ch == '\\' {
+            match chars.next() {
+                Some('"') => result.push('"'),
+                Some('\\') => result.push('\\'),
+                Some('/') => result.push('/'),
+                Some('b') => result.push('\u{0008}'), // backspace
+                Some('f') => result.push('\u{000C}'), // form feed
+                Some('n') => result.push('\n'),
+                Some('r') => result.push('\r'),
+                Some('t') => result.push('\t'),
+                Some('u') => {
+                    // Unicode escape: \uXXXX (4 hex digits)
+                    let hex: String = chars.by_ref().take(4).collect();
+                    if hex.len() != 4 {
+                        return Err(format!("Invalid unicode escape: \\u{}", hex));
+                    }
+                    let code_point = u32::from_str_radix(&hex, 16)
+                        .map_err(|_| format!("Invalid hex in unicode escape: \\u{}", hex))?;
+                    let ch = char::from_u32(code_point).ok_or_else(|| {
+                        format!("Invalid unicode code point: U+{:04X}", code_point)
+                    })?;
+                    result.push(ch);
+                }
+                Some(c) => return Err(format!("Invalid escape sequence: \\{}", c)),
+                None => return Err("Unexpected end after backslash".to_string()),
+            }
+        } else {
+            result.push(ch);
+        }
+    }
+
+    Ok(result)
+}
+
 /// Parse string
 fn parse_string(input: Span) -> IResult<Span, JsonValue> {
     let start = input;
     let (input, _) = char('"')(input)?;
     let content_start = input; // Position after opening quote
 
-    let (input, s) = opt(escaped(
-        take_while(|c| c != '"' && c != '\\'),
-        '\\',
-        one_of(r#""\/bfnrt"#),
-    ))(input)?;
+    // Find the closing quote, tracking escape sequences
+    let current = input;
+    let mut chars_iter = current.fragment().char_indices().peekable();
+    let mut end_index = 0;
 
-    let content_end = input; // Position before closing quote
+    while let Some((i, ch)) = chars_iter.next() {
+        match ch {
+            '"' => {
+                // Found closing quote
+                end_index = i;
+                break;
+            }
+            '\\' => {
+                // Skip the next character (it's escaped)
+                if let Some((_, next_ch)) = chars_iter.next() {
+                    // For \uXXXX, we need to skip 4 more hex digits
+                    if next_ch == 'u' {
+                        // Skip 4 hex digits
+                        for _ in 0..4 {
+                            chars_iter.next();
+                        }
+                    }
+                } else {
+                    // Backslash at end of string - invalid
+                    return Err(nom::Err::Failure(nom::error::Error::new(
+                        current,
+                        nom::error::ErrorKind::Escaped,
+                    )));
+                }
+            }
+            _ => {
+                // Regular character, continue
+            }
+        }
+    }
+
+    // Extract the raw string content (with escape sequences)
+    let raw_content = &current.fragment()[..end_index];
+
+    // Advance past the content
+    let (input, _) = take(end_index)(current)?;
+    let content_end = input;
+
+    // Parse closing quote
     let (input, _) = char('"')(input)?;
     let end = input;
 
     let full_range = make_range(start, end); // "value" with quotes
     let content_range = make_range(content_start, content_end); // value without quotes
-    let string_value = s.map(|s| s.fragment().to_string()).unwrap_or_default();
+
+    // Decode escape sequences
+    let string_value = decode_json_escapes(raw_content).map_err(|_| {
+        nom::Err::Failure(nom::error::Error::new(
+            start,
+            nom::error::ErrorKind::Escaped,
+        ))
+    })?;
 
     Ok((
         input,
@@ -486,5 +570,128 @@ mod tests {
             "Valid JSON should parse successfully: {:?}",
             result.err()
         );
+    }
+
+    #[test]
+    fn test_escape_sequences_basic() {
+        // Test basic escape sequences
+        let result = parse_json(r#""Hello\nWorld""#).unwrap();
+        match result {
+            JsonValue::String { content, .. } => {
+                assert_eq!(content, "Hello\nWorld", "\\n should decode to newline");
+            }
+            _ => panic!("Expected string"),
+        }
+
+        let result = parse_json(r#""Tab\there""#).unwrap();
+        match result {
+            JsonValue::String { content, .. } => {
+                assert_eq!(content, "Tab\there", "\\t should decode to tab");
+            }
+            _ => panic!("Expected string"),
+        }
+
+        let result = parse_json(r#""Quote: \"text\"""#).unwrap();
+        match result {
+            JsonValue::String { content, .. } => {
+                assert_eq!(content, "Quote: \"text\"", "\\\" should decode to quote");
+            }
+            _ => panic!("Expected string"),
+        }
+
+        let result = parse_json(r#""Backslash: \\""#).unwrap();
+        match result {
+            JsonValue::String { content, .. } => {
+                assert_eq!(content, "Backslash: \\", "\\\\ should decode to backslash");
+            }
+            _ => panic!("Expected string"),
+        }
+    }
+
+    #[test]
+    fn test_escape_sequences_unicode() {
+        // Test Unicode escape sequences
+        let result = parse_json(r#""\u00FF""#).unwrap();
+        match result {
+            JsonValue::String { content, .. } => {
+                assert_eq!(content, "\u{00FF}", "\\u00FF should decode to ÿ");
+            }
+            _ => panic!("Expected string"),
+        }
+
+        let result = parse_json(r#""\u0041\u0042\u0043""#).unwrap();
+        match result {
+            JsonValue::String { content, .. } => {
+                assert_eq!(content, "ABC", "\\u0041\\u0042\\u0043 should decode to ABC");
+            }
+            _ => panic!("Expected string"),
+        }
+
+        // Test emoji (higher code points still work in 4-digit range)
+        let result = parse_json(r#""\u2764""#).unwrap();
+        match result {
+            JsonValue::String { content, .. } => {
+                assert_eq!(content, "\u{2764}", "\\u2764 should decode to ❤");
+            }
+            _ => panic!("Expected string"),
+        }
+    }
+
+    #[test]
+    fn test_escape_sequences_mixed() {
+        // Test mixed escape sequences
+        let result = parse_json(r#""Line1\nLine2\tTab\u0041""#).unwrap();
+        match result {
+            JsonValue::String { content, .. } => {
+                assert_eq!(
+                    content, "Line1\nLine2\tTabA",
+                    "Mixed escapes should all decode correctly"
+                );
+            }
+            _ => panic!("Expected string"),
+        }
+    }
+
+    #[test]
+    fn test_escape_sequences_in_object() {
+        // Test escape sequences within a JSON object (real-world scenario)
+        let result = parse_json(r#"{"type": "string", "default": "Hello\nWorld\u00FF"}"#).unwrap();
+        match result {
+            JsonValue::Object { map, .. } => {
+                let (_, default_value) = map.get("default").unwrap();
+                match default_value {
+                    JsonValue::String { content, .. } => {
+                        assert_eq!(content, "Hello\nWorld\u{00FF}");
+                    }
+                    _ => panic!("Expected string value"),
+                }
+            }
+            _ => panic!("Expected object"),
+        }
+    }
+
+    #[test]
+    fn test_decode_json_escapes() {
+        // Test the decode_json_escapes function directly
+        assert_eq!(decode_json_escapes("hello").unwrap(), "hello");
+        assert_eq!(
+            decode_json_escapes("hello\\nworld").unwrap(),
+            "hello\nworld"
+        );
+        assert_eq!(decode_json_escapes("\\t\\r\\n").unwrap(), "\t\r\n");
+        assert_eq!(decode_json_escapes("\\\"quote\\\"").unwrap(), "\"quote\"");
+        assert_eq!(decode_json_escapes("\\\\backslash").unwrap(), "\\backslash");
+        assert_eq!(decode_json_escapes("\\u00FF").unwrap(), "\u{00FF}");
+        assert_eq!(decode_json_escapes("A\\u0042C").unwrap(), "ABC");
+
+        // Test all JSON escape sequences from RFC 8259
+        assert_eq!(decode_json_escapes("\\/").unwrap(), "/"); // forward slash
+        assert_eq!(decode_json_escapes("\\b").unwrap(), "\u{0008}"); // backspace
+        assert_eq!(decode_json_escapes("\\f").unwrap(), "\u{000C}"); // form feed
+
+        // Test invalid escape sequences
+        assert!(decode_json_escapes("\\x").is_err());
+        assert!(decode_json_escapes("\\u00").is_err()); // Too few hex digits
+        assert!(decode_json_escapes("\\uXYZW").is_err()); // Invalid hex
     }
 }

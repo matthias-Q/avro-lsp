@@ -656,17 +656,15 @@ impl ServerState {
             }
         }
 
-        let symbols = crate::handlers::workspace_symbols::collect_workspace_symbols(
-            &all_schemas,
-            query,
-        );
+        let symbols =
+            crate::handlers::workspace_symbols::collect_workspace_symbols(&all_schemas, query);
 
         if symbols.is_empty() {
             Ok(None)
         } else {
-            Ok(Some(
-                async_lsp::lsp_types::WorkspaceSymbolResponse::Flat(symbols),
-            ))
+            Ok(Some(async_lsp::lsp_types::WorkspaceSymbolResponse::Flat(
+                symbols,
+            )))
         }
     }
 }
