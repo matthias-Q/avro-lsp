@@ -8,7 +8,7 @@ This guide provides essential information for AI coding agents and human develop
 
 **Tech Stack**: Rust (edition 2024), async-lsp framework, serde/serde_json for parsing, tokio async runtime
 
-**Avro Specification**: https://avro.apache.org/docs/1.11.1/specification/
+**Avro Specification**: https://avro.apache.org/docs/1.12.0/specification/
 
 ---
 

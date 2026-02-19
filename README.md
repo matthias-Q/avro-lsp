@@ -474,6 +474,6 @@ MIT License - See [LICENSE](LICENSE) file for details
 
 ## References
 
-- [Apache Avro Specification](https://avro.apache.org/docs/1.11.1/specification/)
+- [Apache Avro Specification](https://avro.apache.org/docs/1.12.0/specification/)
 - [Language Server Protocol](https://microsoft.github.io/language-server-protocol/)
 - [async-lsp framework](https://github.com/oxalica/async-lsp)
