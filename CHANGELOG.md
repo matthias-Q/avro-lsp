@@ -2,6 +2,22 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.1.19] - 2026-02-19
+
+### Features
+
+- Improve linter messags
+- Add workspace symbols
+- Add document_highlight
+
+### Bug Fixes
+
+- *(parser)* Parse escape sequences RFC 8259
+
+### Miscellaneous Tasks
+
+- *(release)* Release version v0.1.19
+
 ## [0.1.18] - 2026-02-18
 
 ### Miscellaneous Tasks
