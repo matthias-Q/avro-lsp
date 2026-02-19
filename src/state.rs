@@ -4,8 +4,8 @@ use std::sync::Arc;
 
 use async_lsp::ResponseError;
 use async_lsp::lsp_types::{
-    CompletionItem, Diagnostic, DocumentSymbol, Hover, Location, Position, PrepareRenameResponse,
-    Range, SemanticToken, Url,
+    CompletionItem, Diagnostic, DocumentHighlight, DocumentSymbol, Hover, Location, Position,
+    PrepareRenameResponse, Range, SemanticToken, Url,
 };
 use tokio::sync::RwLock;
 
@@ -349,6 +349,35 @@ impl ServerState {
         // Try to find hover information for this word
         if let Some(schema) = &document.schema {
             crate::handlers::hover::generate_hover(schema, &document.text, &word)
+        } else {
+            None
+        }
+    }
+
+    /// Get document highlights for a symbol at a position
+    pub async fn get_document_highlights(
+        &self,
+        uri: &Url,
+        position: Position,
+    ) -> Option<Vec<DocumentHighlight>> {
+        let state = self.inner.read().await;
+        let document = state.documents.get(uri)?;
+
+        // Get the word at the cursor position
+        let word = crate::handlers::hover::get_word_at_position(&document.text, position)?;
+
+        // Find all highlights for this word
+        if let Some(schema) = &document.schema {
+            let highlights = crate::handlers::document_highlight::find_document_highlights(
+                schema,
+                &document.text,
+                &word,
+            );
+            if highlights.is_empty() {
+                None
+            } else {
+                Some(highlights)
+            }
         } else {
             None
         }

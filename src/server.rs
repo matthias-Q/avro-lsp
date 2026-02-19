@@ -68,6 +68,7 @@ impl LanguageServer for AvroLanguageServer {
                     )),
                     hover_provider: Some(HoverProviderCapability::Simple(true)),
                     document_symbol_provider: Some(OneOf::Left(true)),
+                    document_highlight_provider: Some(OneOf::Left(true)),
                     definition_provider: Some(OneOf::Left(true)),
                     completion_provider: Some(CompletionOptions {
                         trigger_characters: Some(vec![
@@ -223,6 +224,25 @@ impl LanguageServer for AvroLanguageServer {
             match state.get_hover(&uri, position).await {
                 Some(hover) => Ok(Some(hover)),
                 None => Ok(None),
+            }
+        })
+    }
+
+    fn document_highlight(
+        &mut self,
+        params: DocumentHighlightParams,
+    ) -> BoxFuture<'static, Result<Option<Vec<DocumentHighlight>>, Self::Error>> {
+        let uri = params.text_document_position_params.text_document.uri;
+        let position = params.text_document_position_params.position;
+
+        tracing::debug!("Document highlight request at {}:{}", uri, position.line);
+
+        let state = self.state.clone();
+
+        Box::pin(async move {
+            match state.get_document_highlights(&uri, position).await {
+                Some(highlights) if !highlights.is_empty() => Ok(Some(highlights)),
+                _ => Ok(None),
             }
         })
     }
