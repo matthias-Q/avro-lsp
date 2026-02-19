@@ -233,8 +233,13 @@ fn parse_string(input: Span) -> IResult<Span, JsonValue> {
     // Extract the raw string content (with escape sequences)
     let raw_content = &current.fragment()[..end_index];
 
-    // Advance past the content
-    let (input, _) = take(end_index)(current)?;
+    // IMPORTANT: nom's `take` with &str counts CHARACTERS, not bytes!
+    // We need to convert the byte index to a character count.
+    // Count how many characters are in the first `end_index` bytes.
+    let char_count = raw_content.chars().count();
+
+    // Advance past the content (using character count, not byte count)
+    let (input, _) = take(char_count)(current)?;
     let content_end = input;
 
     // Parse closing quote
@@ -450,6 +455,56 @@ mod tests {
             JsonValue::String { content, .. } => assert_eq!(content, "hello"),
             _ => panic!("Expected string"),
         }
+    }
+
+    #[test]
+    fn test_parse_string_with_utf8() {
+        // Test with UTF-8 multibyte characters (curly apostrophe U+2019)
+        // Note: Using format! to include the actual UTF-8 character
+        let json = format!(r#"{{"doc": "The user{}s title"}}"#, '\u{2019}');
+        let result = parse_json(&json).unwrap();
+        match result {
+            JsonValue::Object { map, .. } => {
+                let (_, val) = map.get("doc").expect("Should have 'doc' key");
+                match val {
+                    JsonValue::String { content, .. } => {
+                        assert_eq!(content, &format!("The user{}s title", '\u{2019}'));
+                        // Verify the curly apostrophe is preserved
+                        assert!(content.contains('\u{2019}'));
+                    }
+                    _ => panic!("Expected string value"),
+                }
+            }
+            _ => panic!("Expected object"),
+        }
+    }
+
+    #[test]
+    fn test_parse_avro_schema_with_utf8() {
+        // Real-world test case: Avro schema with UTF-8 in doc strings
+        // Note: {{ and }} are escaped braces in format! strings
+        let apostrophe = '\u{2019}';
+        let json = format!(
+            r#"{{
+  "type": "record",
+  "name": "User",
+  "fields": [
+    {{
+      "name": "title",
+      "type": ["null", "string"],
+      "default": null,
+      "doc": "The user{}s title in the system."
+    }}
+  ]
+}}"#,
+            apostrophe
+        );
+        let result = parse_json(&json);
+        assert!(
+            result.is_ok(),
+            "Should parse schema with UTF-8 characters: {:?}",
+            result.err()
+        );
     }
 
     #[test]
