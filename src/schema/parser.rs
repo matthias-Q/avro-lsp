@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use super::error::{Result, SchemaError};
-use super::json_parser::{JsonValue, parse_json};
+use super::json_parser::{parse_json, JsonValue};
 use super::types::*;
 use super::warning::SchemaWarning;
 
@@ -976,7 +976,7 @@ impl AvroParser {
         let mut best_match: Option<(usize, &str)> = None;
 
         for &valid_field in valid_fields {
-            let distance = Self::levenshtein_distance(input, valid_field);
+            let distance = levenshtein_distance(input, valid_field);
             // Only suggest if distance is small (typo-like)
             if distance <= 2 {
                 match best_match {
@@ -990,33 +990,6 @@ impl AvroParser {
         }
 
         best_match.map(|(_, field)| field.to_string())
-    }
-
-    /// Calculate Levenshtein distance between two strings
-    #[allow(clippy::needless_range_loop)]
-    fn levenshtein_distance(s1: &str, s2: &str) -> usize {
-        let len1 = s1.chars().count();
-        let len2 = s2.chars().count();
-        let mut matrix = vec![vec![0; len2 + 1]; len1 + 1];
-
-        for i in 0..=len1 {
-            matrix[i][0] = i;
-        }
-        for j in 0..=len2 {
-            matrix[0][j] = j;
-        }
-
-        for (i, c1) in s1.chars().enumerate() {
-            for (j, c2) in s2.chars().enumerate() {
-                let cost = if c1 == c2 { 0 } else { 1 };
-                matrix[i + 1][j + 1] = std::cmp::min(
-                    std::cmp::min(matrix[i][j + 1] + 1, matrix[i + 1][j] + 1),
-                    matrix[i][j] + cost,
-                );
-            }
-        }
-
-        matrix[len1][len2]
     }
 
     fn get_optional_string_array(
@@ -1089,7 +1062,7 @@ impl AvroParser {
 
 /// Calculate Levenshtein distance between two strings
 #[allow(clippy::needless_range_loop)]
-fn levenshtein_distance(s1: &str, s2: &str) -> usize {
+pub(crate) fn levenshtein_distance(s1: &str, s2: &str) -> usize {
     let len1 = s1.chars().count();
     let len2 = s2.chars().count();
 
