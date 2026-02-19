@@ -235,7 +235,7 @@ pub fn run_lint(paths: Vec<PathBuf>, workspace_mode: bool) -> i32 {
                     src: NamedSource::new(file_path.display().to_string(), content.clone()),
                     span: SourceSpan::new(offset.into(), length),
                     help: None,
-                    label: "error here".to_string(),
+                    label: diag.message.clone(),
                 };
 
                 let report = Report::new(error);
@@ -273,7 +273,7 @@ pub fn run_lint(paths: Vec<PathBuf>, workspace_mode: bool) -> i32 {
                     src: NamedSource::new(file_path.display().to_string(), content.clone()),
                     span: SourceSpan::new(offset.into(), length),
                     help: None,
-                    label: "warning here".to_string(),
+                    label: diag.message.clone(),
                 };
 
                 let report = Report::new(warning);
@@ -295,7 +295,7 @@ pub fn run_lint(paths: Vec<PathBuf>, workspace_mode: bool) -> i32 {
             total_errors, total_warnings, files_with_issues
         );
     } else {
-        println!("All {} file(s) validated successfully ✓", all_files.len());
+        println!("All {} file(s) validated successfully.", all_files.len());
     }
 
     // Return exit code
