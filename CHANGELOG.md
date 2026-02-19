@@ -2,6 +2,21 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.1.23] - 2026-02-19
+
+### Features
+
+- Add Dockerimage and gitlab ci template
+
+### Bug Fixes
+
+- Error/warn on unknown keys/logicalTypes
+
+### Miscellaneous Tasks
+
+- Ensure compat to Avro spec 1.12
+- *(release)* Release version v0.1.23
+
 ## [0.1.22] - 2026-02-19
 
 ### Bug Fixes
