@@ -31,39 +31,38 @@ pub fn add_cross_file_rename_edits(
             .push(def_edit);
     }
 
-    // Get all references to the simple name
+    // Get all references to the type (with their original ref_text form)
     let all_refs = workspace.find_all_references(old_name);
 
-    let mut edits_by_file: HashMap<Url, Vec<_>> = HashMap::new();
-    for location in all_refs {
+    // Determine the old simple name (last segment after last dot, or the name itself)
+    let old_simple = old_name.rsplit('.').next().unwrap_or(old_name);
+
+    for type_ref_loc in all_refs {
         // Skip current file (handled locally)
-        if location.uri == *current_uri {
+        if type_ref_loc.location.uri == *current_uri {
             continue;
         }
 
-        // Only include references that resolve to the same qualified type
-        if let Some(resolved) = workspace.resolve_type(old_name, &location.uri)
-            && resolved.qualified_name == type_info.qualified_name
-        {
-            edits_by_file
-                .entry(location.uri)
-                .or_default()
-                .push(location.range);
-        }
-    }
+        // Build the replacement text preserving the original reference form.
+        // If the source wrote a FQN (e.g. "com.example.Address"), replace only
+        // the last segment: "com.example.Address2".
+        // If the source wrote a simple name (e.g. "Address"), emit just "Address2".
+        let new_text = if type_ref_loc.ref_text.contains('.') {
+            // FQN reference: replace the simple-name suffix
+            let prefix = &type_ref_loc.ref_text[..type_ref_loc.ref_text.len() - old_simple.len()];
+            format!("{}{}", prefix, new_name)
+        } else {
+            // Simple name reference
+            new_name.to_string()
+        };
 
-    for (file_uri, ranges) in edits_by_file {
-        let edits: Vec<TextEdit> = ranges
-            .into_iter()
-            .map(|range| TextEdit {
-                range,
-                new_text: new_name.to_string(),
-            })
-            .collect();
-
-        if !edits.is_empty() {
-            changes.entry(file_uri).or_default().extend(edits);
-        }
+        changes
+            .entry(type_ref_loc.location.uri)
+            .or_default()
+            .push(TextEdit {
+                range: type_ref_loc.location.range,
+                new_text,
+            });
     }
 }
 
@@ -75,9 +74,10 @@ pub fn collect_cross_file_references(
     // Get all references using the context-aware API
     let all_refs = workspace.find_all_references_from(type_name, current_uri);
 
-    // Filter to exclude current file (already handled locally)
+    // Filter to exclude current file (already handled locally), then extract Location
     all_refs
         .into_iter()
-        .filter(|loc| loc.uri != *current_uri)
+        .filter(|loc| loc.location.uri != *current_uri)
+        .map(|loc| loc.location)
         .collect()
 }

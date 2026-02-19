@@ -21,6 +21,16 @@ pub struct TypeInfo {
     pub definition_range: Option<Range>,
 }
 
+/// A reference to a type found in a source file, with the exact text form used.
+#[derive(Debug, Clone)]
+pub struct TypeRefLocation {
+    /// The source location (file + range) of the reference
+    pub location: Location,
+    /// The exact reference text as written in the source (simple name or FQN).
+    /// Used by rename to produce the correct replacement text.
+    pub ref_text: String,
+}
+
 /// Manages a workspace of Avro schema files
 #[derive(Debug, Clone)]
 #[allow(dead_code)] // Fields will be used when implementing cross-file features
@@ -32,9 +42,10 @@ pub struct Workspace {
     /// Global type registry: maps type names to their definitions
     /// Keys can be either simple names or fully-qualified names
     global_types: HashMap<String, TypeInfo>,
-    /// Inverted reference index: qualified type name → all locations that reference it.
+    /// Inverted reference index: qualified type name → all locations that reference it,
+    /// along with the original reference text form (simple or FQN).
     /// Updated incrementally on update_file / remove_file.
-    ref_index: HashMap<String, Vec<Location>>,
+    ref_index: HashMap<String, Vec<TypeRefLocation>>,
 }
 
 impl Workspace {
@@ -153,8 +164,8 @@ impl Workspace {
         };
         // Capture the file's namespace so we can resolve simple names correctly
         let file_namespace = self.get_schema_namespace(&schema.root);
-        // Collect (qualified_name, location) pairs without holding a borrow on self
-        let mut entries: Vec<(String, Location)> = Vec::new();
+        // Collect (qualified_name, location, ref_text) triples without holding a borrow on self
+        let mut entries: Vec<(String, Location, String)> = Vec::new();
         Self::collect_typerefs_for_index(
             &schema.root,
             uri,
@@ -162,32 +173,33 @@ impl Workspace {
             file_namespace.as_deref(),
             &mut entries,
         );
-        for (qualified_name, location) in entries {
+        for (qualified_name, location, ref_text) in entries {
             self.ref_index
                 .entry(qualified_name)
                 .or_default()
-                .push(location);
+                .push(TypeRefLocation { location, ref_text });
         }
     }
 
     /// Remove all ref-index entries that originate from the given file.
     fn unindex_refs(&mut self, uri: &Url) {
         for locations in self.ref_index.values_mut() {
-            locations.retain(|loc| &loc.uri != uri);
+            locations.retain(|loc| &loc.location.uri != uri);
         }
         // Drop empty vecs to keep memory tidy
         self.ref_index.retain(|_, v| !v.is_empty());
     }
 
     /// Recursively walk an AvroType, resolving every TypeRef and recording
-    /// (qualified_name → Location) pairs into `out`.
+    /// `(qualified_name, Location, ref_text)` triples into `out`.
+    /// `ref_text` is the exact text form used in source (simple name or FQN).
     /// `file_namespace`: the namespace of the file being indexed (for simple-name resolution).
     fn collect_typerefs_for_index(
         avro_type: &AvroType,
         uri: &Url,
         global_types: &HashMap<String, TypeInfo>,
         file_namespace: Option<&str>,
-        out: &mut Vec<(String, Location)>,
+        out: &mut Vec<(String, Location, String)>,
     ) {
         match avro_type {
             AvroType::TypeRef(type_ref) => {
@@ -219,6 +231,7 @@ impl Workspace {
                             uri: uri.clone(),
                             range,
                         },
+                        type_ref.name.clone(),
                     ));
                 }
             }
@@ -347,8 +360,11 @@ impl Workspace {
     /// Find all references to a type across the workspace.
     /// source_uri: The file where the type is defined/being searched from.
     /// Uses the pre-built inverted ref-index for O(1) lookup.
-    #[allow(dead_code)]
-    pub fn find_all_references_from(&self, type_name: &str, source_uri: &Url) -> Vec<Location> {
+    pub fn find_all_references_from(
+        &self,
+        type_name: &str,
+        source_uri: &Url,
+    ) -> Vec<TypeRefLocation> {
         let target_qualified_name = self
             .resolve_type(type_name, source_uri)
             .map(|info| info.qualified_name.as_str())
@@ -360,10 +376,9 @@ impl Workspace {
             .unwrap_or_default()
     }
 
-    /// Legacy method - kept for backward compatibility.
+    /// Find all references to a type across the workspace by simple/qualified name.
     /// Uses the pre-built inverted ref-index for O(1) lookup.
-    #[allow(dead_code)]
-    pub fn find_all_references(&self, type_name: &str) -> Vec<Location> {
+    pub fn find_all_references(&self, type_name: &str) -> Vec<TypeRefLocation> {
         // Try to find the qualified name via simple name lookup in global_types
         let target = self
             .global_types
