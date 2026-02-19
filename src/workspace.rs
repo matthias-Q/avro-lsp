@@ -341,6 +341,11 @@ impl Workspace {
     pub fn contains(&self, uri: &Url) -> bool {
         self.schemas.contains_key(uri)
     }
+
+    /// Get all schemas in the workspace (used for workspace symbol search)
+    pub fn get_all_schemas(&self) -> &HashMap<Url, AvroSchema> {
+        &self.schemas
+    }
 }
 
 /// Implement TypeResolver for Workspace to support cross-file type checking

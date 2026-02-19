@@ -112,6 +112,7 @@ impl LanguageServer for AvroLanguageServer {
                     references_provider: Some(OneOf::Left(true)),
                     inlay_hint_provider: Some(OneOf::Left(true)),
                     folding_range_provider: Some(FoldingRangeProviderCapability::Simple(true)),
+                    workspace_symbol_provider: Some(OneOf::Left(true)),
                     ..Default::default()
                 },
                 server_info: Some(ServerInfo {
@@ -440,5 +441,18 @@ impl LanguageServer for AvroLanguageServer {
                 None => Ok(None),
             }
         })
+    }
+
+    fn symbol(
+        &mut self,
+        params: WorkspaceSymbolParams,
+    ) -> BoxFuture<'static, Result<Option<WorkspaceSymbolResponse>, Self::Error>> {
+        let query = params.query;
+
+        tracing::debug!("Workspace symbol request: query='{}'", query);
+
+        let state = self.state.clone();
+
+        Box::pin(async move { state.get_workspace_symbols(&query).await })
     }
 }

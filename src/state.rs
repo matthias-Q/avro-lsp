@@ -632,6 +632,43 @@ impl ServerState {
             schema, text,
         ))
     }
+
+    /// Get workspace symbols matching the query
+    pub async fn get_workspace_symbols(
+        &self,
+        query: &str,
+    ) -> Result<Option<async_lsp::lsp_types::WorkspaceSymbolResponse>, ResponseError> {
+        let state = self.inner.read().await;
+
+        // Collect schemas from all sources
+        let mut all_schemas = HashMap::new();
+
+        // Get schemas from workspace
+        for (uri, schema) in state.workspace.get_all_schemas() {
+            all_schemas.insert(uri.clone(), schema.clone());
+        }
+
+        // Also include currently open documents (they may not be in workspace yet)
+        for (uri, doc) in &state.documents {
+            if let Some(schema) = &doc.schema {
+                // Use the open document's schema as it's more up-to-date
+                all_schemas.insert(uri.clone(), schema.clone());
+            }
+        }
+
+        let symbols = crate::handlers::workspace_symbols::collect_workspace_symbols(
+            &all_schemas,
+            query,
+        );
+
+        if symbols.is_empty() {
+            Ok(None)
+        } else {
+            Ok(Some(
+                async_lsp::lsp_types::WorkspaceSymbolResponse::Flat(symbols),
+            ))
+        }
+    }
 }
 
 impl Default for ServerState {

@@ -11,5 +11,6 @@ pub mod inlay_hints;
 pub mod rename;
 pub mod semantic_tokens;
 pub mod symbols;
+pub mod workspace_symbols;
 
 // Re-export commonly used types
