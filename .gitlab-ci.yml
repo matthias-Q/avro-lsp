@@ -184,7 +184,7 @@ build-docker:
     # Allow manual trigger on other branches
     - when: manual
   tags:
-    - docker
+    - CPU-and-Memory-Intensive
 
 build-extension:
   stage: package
@@ -303,7 +303,7 @@ release:
       echo "Uploading VSIX: $EXPECTED_VSIX_NAME"
       curl --header "JOB-TOKEN: ${CI_JOB_TOKEN}" --upload-file "$VSIX_FILE" \
         "${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic/avro-lsp/${CI_COMMIT_TAG}/${EXPECTED_VSIX_NAME}"
-      
+
       # Create release with proper asset links using release-cli
       release-cli create \
         --name "Release ${CI_COMMIT_TAG}" \
