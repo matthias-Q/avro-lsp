@@ -2,6 +2,16 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.1.22] - 2026-02-19
+
+### Bug Fixes
+
+- *(parser)* Parse unicode chars correctly
+
+### Miscellaneous Tasks
+
+- *(release)* Release version v0.1.22
+
 ## [0.1.21] - 2026-02-19
 
 ### Features
