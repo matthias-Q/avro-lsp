@@ -12,14 +12,20 @@ RUN apt-get update && \
 # Copy manifest files first for better caching
 COPY Cargo.toml Cargo.lock ./
 
-# Create a dummy main.rs to cache dependencies
-RUN mkdir -p src && \
+# Create dummy source files to cache dependencies
+RUN mkdir -p src benches && \
     echo "fn main() {}" > src/main.rs && \
+    echo "fn main() {}" > benches/parser_bench.rs && \
+    echo "fn main() {}" > benches/validator_bench.rs && \
+    echo "fn main() {}" > benches/handlers_bench.rs && \
+    echo "fn main() {}" > benches/workspace_bench.rs && \
+    echo "fn main() {}" > benches/integration_bench.rs && \
     cargo build --release && \
-    rm -rf src
+    rm -rf src benches
 
 # Copy actual source code
 COPY src ./src
+COPY benches ./benches
 
 # Build the real binary
 RUN cargo build --release --bin avro-lsp
