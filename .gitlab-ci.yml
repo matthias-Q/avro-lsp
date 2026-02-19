@@ -2,6 +2,9 @@ image: "rust:latest"
 
 variables:
   CARGO_HOME: $CI_PROJECT_DIR/cargo
+  DOCKER_HOST: tcp://docker:2375
+  DOCKER_TLS_CERTDIR: ""
+  DOCKER_BUILDKIT: 1
 
 workflow:
   rules:
@@ -19,9 +22,6 @@ workflow:
   variables:
     CARGO_HOME: $CI_PROJECT_DIR/cargo
     CACHE_FALLBACK_KEY: $CI_DEFAULT_BRANCH
-    DOCKER_HOST: tcp://docker:2375
-    DOCKER_TLS_CERTDIR: ""
-    DOCKER_BUILDKIT: 1
 
 default:
   before_script:
