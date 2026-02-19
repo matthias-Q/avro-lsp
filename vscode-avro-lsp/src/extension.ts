@@ -1,7 +1,7 @@
 import * as path from 'path';
 import * as os from 'os';
 import * as fs from 'fs';
-import { workspace, ExtensionContext } from 'vscode';
+import { workspace, window, ExtensionContext } from 'vscode';
 import {
   LanguageClient,
   LanguageClientOptions,
@@ -14,11 +14,14 @@ let client: LanguageClient;
 export function activate(context: ExtensionContext) {
   try {
     const serverOptions: ServerOptions = getServerOptions(context);
+    const outputChannel = window.createOutputChannel('Avro Language Server', {log: true});
+
     const clientOptions: LanguageClientOptions = {
       documentSelector: [{ scheme: 'file', language: 'avsc' }],
       synchronize: {
         fileEvents: workspace.createFileSystemWatcher('**/*.avsc')
-      }
+      },
+      outputChannel,
     };
 
     client = new LanguageClient(
@@ -104,11 +107,11 @@ function getBundledBinaryPath(context: ExtensionContext): string {
 
   const binaryPath = path.join(context.extensionPath, 'bin', binaryName);
   console.log(`Avro LSP binary path: ${binaryPath}`);
-  
+
   // Check if binary exists
   if (!fs.existsSync(binaryPath)) {
     throw new Error(`Avro LSP binary not found at: ${binaryPath}`);
   }
-  
+
   return binaryPath;
 }

@@ -54,7 +54,7 @@ async fn run_lsp_server() {
     let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
 
     tracing_subscriber::registry()
-        .with(fmt::layer().with_writer(std::io::stderr))
+        .with(fmt::layer().with_writer(std::io::stderr).with_ansi(false))
         .with(filter)
         .init();
 
