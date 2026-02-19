@@ -1,0 +1,60 @@
+{
+  "type": "record",
+  "name": "Product",
+  "namespace": "com.example.ecommerce",
+  "doc": "A product in our catalog",
+  "fields": [
+    {
+      "name": "id",
+      "type": "long",
+      "doc": "Unique product identifier"
+    },
+    {
+      "name": "name",
+      "type": "string",
+      "doc": "Product name"
+    },
+    {
+      "name": "price",
+      "type": {
+        "type": "bytes",
+        "logicalType": "decimal",
+        "precision": 10,
+        "scale": 2
+      },
+      "doc": "Product price in USD"
+    },
+    {
+      "name": "tags",
+      "type": {
+        "type": "array",
+        "items": "string"
+      },
+      "default": [],
+      "doc": "Product tags for search"
+    },
+    {
+      "name": "description",
+      "type": ["null", "string"],
+      "default": null,
+      "doc": "Optional product description"
+    },
+    {
+      "name": "status",
+      "type": {
+        "type": "enum",
+        "name": "ProductStatus",
+        "symbols": ["AVAILABLE", "OUT_OF_STOCK", "DISCONTINUED"]
+      },
+      "default": "AVAILABLE"
+    },
+    {
+      "name": "created_at",
+      "type": {
+        "type": "long",
+        "logicalType": "timestamp-millis"
+      },
+      "doc": "Product creation timestamp"
+    }
+  ]
+}

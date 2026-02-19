@@ -32,6 +32,14 @@ clean:
 run:
     cargo run --release
 
+# Print AST for an Avro schema file (tree view)
+print-ast FILEPATH:
+    cargo run --example print_ast -- {{FILEPATH}}
+
+# Print AST for an Avro schema file (JSON view)
+print-ast-json FILEPATH:
+    cargo run --example print_ast -- --json {{FILEPATH}}
+
 # Make a release, defaults to `patch`
 release TYPE="patch":
     #!/usr/bin/env bash
