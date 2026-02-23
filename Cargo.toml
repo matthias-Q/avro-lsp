@@ -50,6 +50,10 @@ harness = false
 name = "integration_bench"
 harness = false
 
+[[bench]]
+name = "e2e_lint_bench"
+harness = false
+
 [profile.release]
 strip = true
 opt-level = "z"

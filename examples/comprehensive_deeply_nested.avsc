@@ -1,0 +1,621 @@
+{
+  "type": "record",
+  "name": "ComprehensiveDeepSchema",
+  "namespace": "com.example.ultra.deep.nested.schema.hierarchy.level1.level2.level3",
+  "doc": "An extremely comprehensive Avro schema demonstrating all types with very deep nesting",
+  "aliases": ["OldComprehensiveSchema", "LegacyComplexSchema"],
+  "fields": [
+    {
+      "name": "primitives_section",
+      "type": {
+        "type": "record",
+        "name": "AllPrimitives",
+        "doc": "Demonstrates all primitive types",
+        "fields": [
+          {"name": "null_field", "type": "null"},
+          {"name": "boolean_field", "type": "boolean", "default": false},
+          {"name": "int_field", "type": "int", "default": 42},
+          {"name": "long_field", "type": "long", "default": 9223372036854775807},
+          {"name": "float_field", "type": "float", "default": 3.14},
+          {"name": "double_field", "type": "double", "default": 2.718281828},
+          {"name": "bytes_field", "type": "bytes"},
+          {"name": "string_field", "type": "string", "default": "hello world"}
+        ]
+      }
+    },
+    {
+      "name": "complex_unions",
+      "type": {
+        "type": "record",
+        "name": "UnionExamples",
+        "doc": "Complex union types",
+        "fields": [
+          {
+            "name": "nullable_string",
+            "type": ["null", "string"],
+            "default": null
+          },
+          {
+            "name": "multi_type_union",
+            "type": ["null", "int", "long", "float", "double", "string", "bytes"],
+            "default": null
+          },
+          {
+            "name": "union_with_single_record",
+            "type": [
+              "null",
+              {
+                "type": "record",
+                "name": "UnionRecord1",
+                "fields": [
+                  {"name": "id", "type": "int"},
+                  {"name": "name", "type": "string"}
+                ]
+              }
+            ],
+            "default": null
+          }
+        ]
+      }
+    },
+    {
+      "name": "arrays_section",
+      "type": {
+        "type": "record",
+        "name": "ArrayExamples",
+        "doc": "Various array types",
+        "fields": [
+          {
+            "name": "int_array",
+            "type": {"type": "array", "items": "int"},
+            "default": []
+          },
+          {
+            "name": "string_array",
+            "type": {"type": "array", "items": "string"},
+            "default": []
+          },
+          {
+            "name": "array_of_arrays",
+            "type": {
+              "type": "array",
+              "items": {
+                "type": "array",
+                "items": {
+                  "type": "array",
+                  "items": "int"
+                }
+              }
+            },
+            "default": []
+          },
+          {
+            "name": "array_of_records",
+            "type": {
+              "type": "array",
+              "items": {
+                "type": "record",
+                "name": "ArrayItem",
+                "fields": [
+                  {"name": "item_id", "type": "long"},
+                  {"name": "item_name", "type": "string"},
+                  {"name": "item_price", "type": "double"}
+                ]
+              }
+            },
+            "default": []
+          },
+          {
+            "name": "array_of_nullable_items",
+            "type": {
+              "type": "array",
+              "items": ["null", "string", "int"]
+            },
+            "default": []
+          }
+        ]
+      }
+    },
+    {
+      "name": "maps_section",
+      "type": {
+        "type": "record",
+        "name": "MapExamples",
+        "doc": "Various map types",
+        "fields": [
+          {
+            "name": "string_to_int_map",
+            "type": {"type": "map", "values": "int"},
+            "default": {}
+          },
+          {
+            "name": "string_to_record_map",
+            "type": {
+              "type": "map",
+              "values": {
+                "type": "record",
+                "name": "MapValueRecord",
+                "fields": [
+                  {"name": "value_id", "type": "string"},
+                  {"name": "value_amount", "type": "double"}
+                ]
+              }
+            },
+            "default": {}
+          },
+          {
+            "name": "nested_maps",
+            "type": {
+              "type": "map",
+              "values": {
+                "type": "map",
+                "values": {
+                  "type": "map",
+                  "values": "string"
+                }
+              }
+            },
+            "default": {}
+          },
+          {
+            "name": "map_of_arrays",
+            "type": {
+              "type": "map",
+              "values": {
+                "type": "array",
+                "items": "long"
+              }
+            },
+            "default": {}
+          }
+        ]
+      }
+    },
+    {
+      "name": "enums_section",
+      "type": {
+        "type": "record",
+        "name": "EnumExamples",
+        "doc": "Various enum types",
+        "fields": [
+          {
+            "name": "status",
+            "type": {
+              "type": "enum",
+              "name": "Status",
+              "namespace": "com.example.enums",
+              "doc": "Status enumeration",
+              "symbols": ["PENDING", "ACTIVE", "INACTIVE", "DELETED", "ARCHIVED"],
+              "default": "PENDING"
+            }
+          },
+          {
+            "name": "priority",
+            "type": {
+              "type": "enum",
+              "name": "Priority",
+              "symbols": ["LOW", "MEDIUM", "HIGH", "CRITICAL", "BLOCKER"]
+            }
+          },
+          {
+            "name": "color",
+            "type": {
+              "type": "enum",
+              "name": "Color",
+              "symbols": ["RED", "GREEN", "BLUE", "YELLOW", "ORANGE", "PURPLE", "BLACK", "WHITE"]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "fixed_section",
+      "type": {
+        "type": "record",
+        "name": "FixedExamples",
+        "doc": "Fixed-size byte arrays",
+        "fields": [
+          {
+            "name": "md5_hash",
+            "type": {
+              "type": "fixed",
+              "name": "MD5",
+              "namespace": "com.example.crypto",
+              "size": 16
+            }
+          },
+          {
+            "name": "sha256_hash",
+            "type": {
+              "type": "fixed",
+              "name": "SHA256",
+              "size": 32
+            }
+          },
+          {
+            "name": "uuid",
+            "type": {
+              "type": "fixed",
+              "name": "UUID",
+              "size": 16
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "deeply_nested_level_1",
+      "type": {
+        "type": "record",
+        "name": "Level1",
+        "doc": "First level of deep nesting",
+        "fields": [
+          {"name": "level1_id", "type": "long"},
+          {"name": "level1_name", "type": "string"},
+          {
+            "name": "deeply_nested_level_2",
+            "type": {
+              "type": "record",
+              "name": "Level2",
+              "doc": "Second level of deep nesting",
+              "fields": [
+                {"name": "level2_id", "type": "long"},
+                {"name": "level2_data", "type": "string"},
+                {
+                  "name": "deeply_nested_level_3",
+                  "type": {
+                    "type": "record",
+                    "name": "Level3",
+                    "doc": "Third level of deep nesting",
+                    "fields": [
+                      {"name": "level3_id", "type": "long"},
+                      {"name": "level3_value", "type": "double"},
+                      {
+                        "name": "deeply_nested_level_4",
+                        "type": {
+                          "type": "record",
+                          "name": "Level4",
+                          "doc": "Fourth level of deep nesting",
+                          "fields": [
+                            {"name": "level4_id", "type": "long"},
+                            {"name": "level4_metadata", "type": "bytes"},
+                            {
+                              "name": "deeply_nested_level_5",
+                              "type": {
+                                "type": "record",
+                                "name": "Level5",
+                                "doc": "Fifth level of deep nesting",
+                                "fields": [
+                                  {"name": "level5_id", "type": "long"},
+                                  {"name": "level5_flags", "type": "int"},
+                                  {
+                                    "name": "deeply_nested_level_6",
+                                    "type": {
+                                      "type": "record",
+                                      "name": "Level6",
+                                      "doc": "Sixth level of deep nesting",
+                                      "fields": [
+                                        {"name": "level6_id", "type": "long"},
+                                        {"name": "level6_config", "type": "string"},
+                                        {
+                                          "name": "deeply_nested_level_7",
+                                          "type": {
+                                            "type": "record",
+                                            "name": "Level7",
+                                            "doc": "Seventh level of deep nesting",
+                                            "fields": [
+                                              {"name": "level7_id", "type": "long"},
+                                              {"name": "level7_status", "type": "boolean"},
+                                              {
+                                                "name": "deeply_nested_level_8",
+                                                "type": {
+                                                  "type": "record",
+                                                  "name": "Level8",
+                                                  "doc": "Eighth level of deep nesting",
+                                                  "fields": [
+                                                    {"name": "level8_id", "type": "long"},
+                                                    {"name": "level8_timestamp", "type": "long"},
+                                                    {
+                                                      "name": "deeply_nested_level_9",
+                                                      "type": {
+                                                        "type": "record",
+                                                        "name": "Level9",
+                                                        "doc": "Ninth level of deep nesting",
+                                                        "fields": [
+                                                          {"name": "level9_id", "type": "long"},
+                                                          {"name": "level9_correlation_id", "type": "string"},
+                                                          {
+                                                            "name": "deeply_nested_level_10",
+                                                            "type": {
+                                                              "type": "record",
+                                                              "name": "Level10",
+                                                              "doc": "Tenth level of deep nesting - extreme depth!",
+                                                              "fields": [
+                                                                {"name": "level10_id", "type": "long"},
+                                                                {"name": "level10_final_data", "type": "string"},
+                                                                {"name": "level10_secret_number", "type": "int", "default": 42},
+                                                                {
+                                                                  "name": "level10_deep_array",
+                                                                  "type": {
+                                                                    "type": "array",
+                                                                    "items": {
+                                                                      "type": "map",
+                                                                      "values": {
+                                                                        "type": "array",
+                                                                        "items": "string"
+                                                                      }
+                                                                    }
+                                                                  },
+                                                                  "default": []
+                                                                }
+                                                              ]
+                                                            }
+                                                          }
+                                                        ]
+                                                      }
+                                                    }
+                                                  ]
+                                                }
+                                              }
+                                            ]
+                                          }
+                                        }
+                                      ]
+                                    }
+                                  }
+                                ]
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    ]
+                  }
+                }
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "complex_nested_arrays",
+      "type": {
+        "type": "record",
+        "name": "ComplexArrayNesting",
+        "doc": "Complex combinations of arrays, maps, and records",
+        "fields": [
+          {
+            "name": "array_of_maps_of_records",
+            "type": {
+              "type": "array",
+              "items": {
+                "type": "map",
+                "values": {
+                  "type": "record",
+                  "name": "NestedArrayMapRecord",
+                  "fields": [
+                    {"name": "id", "type": "string"},
+                    {"name": "value", "type": "double"},
+                    {
+                      "name": "nested_array",
+                      "type": {
+                        "type": "array",
+                        "items": {
+                          "type": "record",
+                          "name": "InnerArrayRecord",
+                          "fields": [
+                            {"name": "inner_id", "type": "long"},
+                            {"name": "inner_name", "type": "string"},
+                            {
+                              "name": "inner_map",
+                              "type": {
+                                "type": "map",
+                                "values": "int"
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            },
+            "default": []
+          },
+          {
+            "name": "map_of_arrays_of_maps",
+            "type": {
+              "type": "map",
+              "values": {
+                "type": "array",
+                "items": {
+                  "type": "map",
+                  "values": {
+                    "type": "array",
+                    "items": "string"
+                  }
+                }
+              }
+            },
+            "default": {}
+          }
+        ]
+      }
+    },
+    {
+      "name": "union_complexity",
+      "type": {
+        "type": "record",
+        "name": "ComplexUnions",
+        "doc": "Union combinations that don't trigger warnings",
+        "fields": [
+          {
+            "name": "union_with_nested_record",
+            "type": [
+              "null",
+              {
+                "type": "record",
+                "name": "UnionNestedRecord1",
+                "fields": [
+                  {"name": "type_a_id", "type": "long"},
+                  {
+                    "name": "type_a_nested",
+                    "type": {
+                      "type": "record",
+                      "name": "UnionNestedRecord1Inner",
+                      "fields": [
+                        {"name": "inner_value", "type": "string"},
+                        {
+                          "name": "inner_array",
+                          "type": {"type": "array", "items": "int"}
+                        }
+                      ]
+                    }
+                  }
+                ]
+              }
+            ],
+            "default": null
+          },
+          {
+            "name": "simple_array_of_unions",
+            "type": {
+              "type": "array",
+              "items": ["null", "string", "int"]
+            },
+            "default": []
+          }
+        ]
+      }
+    },
+    {
+      "name": "all_types_combined",
+      "type": {
+        "type": "record",
+        "name": "AllTypesCombined",
+        "doc": "Kitchen sink - all types in one complex structure",
+        "fields": [
+          {"name": "simple_string", "type": "string"},
+          {"name": "simple_int", "type": "int"},
+          {"name": "simple_long", "type": "long"},
+          {"name": "simple_float", "type": "float"},
+          {"name": "simple_double", "type": "double"},
+          {"name": "simple_boolean", "type": "boolean"},
+          {"name": "simple_bytes", "type": "bytes"},
+          {"name": "nullable_string", "type": ["null", "string"], "default": null},
+          {
+            "name": "status_enum",
+            "type": {
+              "type": "enum",
+              "name": "CombinedStatus",
+              "symbols": ["CREATED", "PROCESSING", "COMPLETED", "FAILED"]
+            }
+          },
+          {
+            "name": "fixed_bytes",
+            "type": {
+              "type": "fixed",
+              "name": "CombinedFixed",
+              "size": 8
+            }
+          },
+          {
+            "name": "string_array",
+            "type": {"type": "array", "items": "string"},
+            "default": []
+          },
+          {
+            "name": "int_map",
+            "type": {"type": "map", "values": "int"},
+            "default": {}
+          },
+          {
+            "name": "complex_nested_structure",
+            "type": {
+              "type": "record",
+              "name": "CombinedNested",
+              "fields": [
+                {
+                  "name": "nested_array_of_maps",
+                  "type": {
+                    "type": "array",
+                    "items": {
+                      "type": "map",
+                      "values": {
+                        "type": "record",
+                        "name": "CombinedNestedMapValue",
+                        "fields": [
+                          {"name": "nested_id", "type": "long"},
+                          {"name": "nested_name", "type": "string"},
+                          {
+                            "name": "nested_tags",
+                            "type": {"type": "array", "items": "string"}
+                          },
+                          {
+                            "name": "nested_metadata",
+                            "type": {"type": "map", "values": "string"}
+                          },
+                          {
+                            "name": "nested_status",
+                            "type": {
+                              "type": "enum",
+                              "name": "NestedStatus",
+                              "symbols": ["ENABLED", "DISABLED", "UNKNOWN"]
+                            }
+                          }
+                        ]
+                      }
+                    }
+                  },
+                  "default": []
+                }
+              ]
+            }
+          },
+          {
+            "name": "union_field",
+            "type": [
+              "null",
+              {
+                "type": "record",
+                "name": "CombinedUnionRecord",
+                "fields": [
+                  {"name": "union_field_id", "type": "string"},
+                  {"name": "union_field_value", "type": "double"}
+                ]
+              }
+            ],
+            "default": null
+          }
+        ]
+      }
+    },
+    {
+      "name": "metadata",
+      "type": {
+        "type": "record",
+        "name": "Metadata",
+        "doc": "Schema metadata and audit information",
+        "fields": [
+          {"name": "created_at", "type": "long"},
+          {"name": "updated_at", "type": "long"},
+          {"name": "created_by", "type": "string"},
+          {"name": "updated_by", "type": "string"},
+          {"name": "version", "type": "int", "default": 1},
+          {
+            "name": "tags",
+            "type": {"type": "array", "items": "string"},
+            "default": []
+          },
+          {
+            "name": "properties",
+            "type": {"type": "map", "values": "string"},
+            "default": {}
+          }
+        ]
+      }
+    }
+  ]
+}
