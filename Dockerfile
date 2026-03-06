@@ -1,6 +1,6 @@
 # Multi-stage build for avro-lsp linter
 # Stage 1: Build the binary
-FROM rust:1.93-slim AS builder
+FROM rust:1.94-slim AS builder
 
 WORKDIR /build
 
