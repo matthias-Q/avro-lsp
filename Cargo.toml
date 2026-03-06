@@ -5,7 +5,7 @@ edition = "2024"
 license = "MIT"
 
 [dependencies]
-async-lsp = "0.2.2"
+async-lsp = "0.2.3"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 tokio = { version = "1", features = ["rt-multi-thread", "io-std", "io-util", "macros", "sync", "fs"] }
@@ -27,7 +27,7 @@ miette = { version = "7.6", features = ["fancy"] }
 
 [dev-dependencies]
 pretty_assertions = "1.4"
-tempfile = "3.25"
+tempfile = "3.26"
 criterion = { version = "0.5", features = ["html_reports"] }
 
 [[bench]]
