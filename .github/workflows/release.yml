@@ -138,11 +138,26 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
-      - name: Download all binaries
+      - name: Download Linux binary
         uses: actions/download-artifact@v4
         with:
+          name: avro-lsp-linux-x64
           path: vscode-avro-lsp/bin
-          merge-multiple: true
+      - name: Download Windows binary
+        uses: actions/download-artifact@v4
+        with:
+          name: avro-lsp-win32-x64
+          path: vscode-avro-lsp/bin
+      - name: Download macOS x64 binary
+        uses: actions/download-artifact@v4
+        with:
+          name: avro-lsp-darwin-x64
+          path: vscode-avro-lsp/bin
+      - name: Download macOS arm64 binary
+        uses: actions/download-artifact@v4
+        with:
+          name: avro-lsp-darwin-arm64
+          path: vscode-avro-lsp/bin
       - name: Fix permissions
         run: chmod +x vscode-avro-lsp/bin/avro-lsp-linux-x64 vscode-avro-lsp/bin/avro-lsp-darwin-x64 vscode-avro-lsp/bin/avro-lsp-darwin-arm64
       - name: Install dependencies and package
@@ -163,11 +178,31 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - name: Download all artifacts
+      - name: Download Linux binary
         uses: actions/download-artifact@v4
         with:
+          name: avro-lsp-linux-x64
           path: artifacts
-          merge-multiple: true
+      - name: Download Windows binary
+        uses: actions/download-artifact@v4
+        with:
+          name: avro-lsp-win32-x64
+          path: artifacts
+      - name: Download macOS x64 binary
+        uses: actions/download-artifact@v4
+        with:
+          name: avro-lsp-darwin-x64
+          path: artifacts
+      - name: Download macOS arm64 binary
+        uses: actions/download-artifact@v4
+        with:
+          name: avro-lsp-darwin-arm64
+          path: artifacts
+      - name: Download VS Code extension
+        uses: actions/download-artifact@v4
+        with:
+          name: vscode-extension
+          path: artifacts
       - name: Extract changelog for this version
         id: changelog
         run: |
