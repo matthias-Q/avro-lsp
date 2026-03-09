@@ -59,8 +59,8 @@ jobs:
         with:
           targets: x86_64-apple-darwin
       - uses: Swatinem/rust-cache@v2
-      - uses: cargo-bins/cargo-binstall@main
-      - run: cargo binstall -y cargo-zigbuild
+      - uses: mlugg/setup-zig@v2
+      - run: cargo install cargo-zigbuild --locked
       - run: cargo zigbuild --release --target x86_64-apple-darwin
       - name: Rename binary
         run: cp target/x86_64-apple-darwin/release/avro-lsp avro-lsp-darwin-x64
@@ -78,8 +78,8 @@ jobs:
         with:
           targets: aarch64-apple-darwin
       - uses: Swatinem/rust-cache@v2
-      - uses: cargo-bins/cargo-binstall@main
-      - run: cargo binstall -y cargo-zigbuild
+      - uses: mlugg/setup-zig@v2
+      - run: cargo install cargo-zigbuild --locked
       - run: cargo zigbuild --release --target aarch64-apple-darwin
       - name: Rename binary
         run: cp target/aarch64-apple-darwin/release/avro-lsp avro-lsp-darwin-arm64

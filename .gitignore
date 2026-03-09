@@ -6,3 +6,6 @@ vscode-avro-lsp/out/
 vscode-avro-lsp/dist/
 vscode-avro-lsp/bin/
 vscode-avro-lsp/*.vsix
+
+# Local setup notes (not for the repo)
+GITHUB_SETUP.md

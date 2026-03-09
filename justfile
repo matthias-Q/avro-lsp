@@ -77,9 +77,10 @@ release TYPE="patch":
 
     echo "Release v$NEW_VERSION created. Run 'just push-release' to push."
 
-# Push release to remote with tags
+# Push release to remote with tags (branch first, then tag as a separate push to trigger CI correctly)
 push-release:
-    git push && git push --tags
+    git push
+    git push --tags
 
 # Build VS Code extension
 build-extension:
