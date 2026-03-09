@@ -225,6 +225,16 @@ fn format_type_info(avro_type: &AvroType) -> String {
             if let Some(ns) = &record.namespace {
                 info.push_str(&format!("**Namespace**: `{}`\n\n", ns));
             }
+            if let Some(aliases) = &record.aliases
+                && !aliases.is_empty()
+            {
+                let formatted = aliases
+                    .iter()
+                    .map(|a| format!("`{}`", a))
+                    .collect::<Vec<String>>()
+                    .join(", ");
+                info.push_str(&format!("**Aliases**: {}\n\n", formatted));
+            }
             if let Some(doc) = &record.doc {
                 info.push_str(&format!("{}\n\n", doc));
             }
@@ -240,6 +250,16 @@ fn format_type_info(avro_type: &AvroType) -> String {
             if let Some(ns) = &enum_schema.namespace {
                 info.push_str(&format!("**Namespace**: `{}`\n\n", ns));
             }
+            if let Some(aliases) = &enum_schema.aliases
+                && !aliases.is_empty()
+            {
+                let formatted = aliases
+                    .iter()
+                    .map(|a| format!("`{}`", a))
+                    .collect::<Vec<String>>()
+                    .join(", ");
+                info.push_str(&format!("**Aliases**: {}\n\n", formatted));
+            }
             if let Some(doc) = &enum_schema.doc {
                 info.push_str(&format!("{}\n\n", doc));
             }
@@ -251,6 +271,16 @@ fn format_type_info(avro_type: &AvroType) -> String {
             let mut info = format!("**Fixed**: `{}`\n\n", fixed.name);
             if let Some(ns) = &fixed.namespace {
                 info.push_str(&format!("**Namespace**: `{}`\n\n", ns));
+            }
+            if let Some(aliases) = &fixed.aliases
+                && !aliases.is_empty()
+            {
+                let formatted = aliases
+                    .iter()
+                    .map(|a| format!("`{}`", a))
+                    .collect::<Vec<String>>()
+                    .join(", ");
+                info.push_str(&format!("**Aliases**: {}\n\n", formatted));
             }
             info.push_str(&format!("**Size**: {} bytes", fixed.size));
             info
@@ -334,6 +364,16 @@ fn find_field_info(schema: &AvroSchema, field_name: &str, _text: &str) -> Option
                     if let Some(doc) = &field.doc {
                         info.push_str(&format!("**Description**: {}\n\n", doc));
                     }
+                    if let Some(aliases) = &field.aliases
+                        && !aliases.is_empty()
+                    {
+                        let formatted = aliases
+                            .iter()
+                            .map(|a| format!("`{}`", a))
+                            .collect::<Vec<_>>()
+                            .join(", ");
+                        info.push_str(&format!("**Aliases**: {}\n\n", formatted));
+                    }
                     info.push_str(&format!("**In Record**: `{}`", record.name));
                     return Some(info);
                 }
@@ -345,7 +385,213 @@ fn find_field_info(schema: &AvroSchema, field_name: &str, _text: &str) -> Option
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashMap;
+
+    use crate::schema::{EnumSchema, Field, FixedSchema, RecordSchema};
+
     use super::*;
+
+    // --- helpers ---
+
+    fn make_schema(named_types: HashMap<String, AvroType>) -> AvroSchema {
+        let root = named_types
+            .values()
+            .next()
+            .cloned()
+            .unwrap_or(AvroType::Primitive(PrimitiveType::Null));
+        AvroSchema {
+            root,
+            named_types,
+            parse_errors: Vec::new(),
+            semantic_tokens: Vec::new(),
+            warnings: Vec::new(),
+        }
+    }
+
+    fn hover_value(schema: &AvroSchema, word: &str) -> Option<String> {
+        generate_hover(schema, "", word).map(|h| match h.contents {
+            HoverContents::Markup(m) => m.value,
+            _ => panic!("expected markup"),
+        })
+    }
+
+    // --- alias tests ---
+
+    #[test]
+    fn test_hover_record_with_aliases() {
+        let record = RecordSchema {
+            type_name: "record".to_string(),
+            name: "User".to_string(),
+            namespace: None,
+            doc: None,
+            aliases: Some(vec!["LegacyUser".to_string(), "Person".to_string()]),
+            fields: vec![],
+            range: None,
+            name_range: None,
+            namespace_range: None,
+        };
+        let mut named_types = HashMap::new();
+        named_types.insert("User".to_string(), AvroType::Record(record));
+        let schema = make_schema(named_types);
+
+        let value = hover_value(&schema, "User").expect("hover should be Some");
+        assert!(
+            value.contains("**Aliases**: `LegacyUser`, `Person`"),
+            "hover did not contain aliases: {value}"
+        );
+    }
+
+    #[test]
+    fn test_hover_record_without_aliases() {
+        let record = RecordSchema {
+            type_name: "record".to_string(),
+            name: "User".to_string(),
+            namespace: None,
+            doc: None,
+            aliases: None,
+            fields: vec![],
+            range: None,
+            name_range: None,
+            namespace_range: None,
+        };
+        let mut named_types = HashMap::new();
+        named_types.insert("User".to_string(), AvroType::Record(record));
+        let schema = make_schema(named_types);
+
+        let value = hover_value(&schema, "User").expect("hover should be Some");
+        assert!(
+            !value.contains("**Aliases**"),
+            "hover should not contain aliases line: {value}"
+        );
+    }
+
+    #[test]
+    fn test_hover_enum_with_aliases() {
+        let enum_schema = EnumSchema {
+            type_name: "enum".to_string(),
+            name: "Status".to_string(),
+            namespace: None,
+            doc: None,
+            aliases: Some(vec!["State".to_string()]),
+            symbols: vec!["ACTIVE".to_string(), "INACTIVE".to_string()],
+            default: None,
+            range: None,
+            name_range: None,
+            namespace_range: None,
+        };
+        let mut named_types = HashMap::new();
+        named_types.insert("Status".to_string(), AvroType::Enum(enum_schema));
+        let schema = make_schema(named_types);
+
+        let value = hover_value(&schema, "Status").expect("hover should be Some");
+        assert!(
+            value.contains("**Aliases**: `State`"),
+            "hover did not contain aliases: {value}"
+        );
+    }
+
+    #[test]
+    fn test_hover_fixed_with_aliases() {
+        let fixed = FixedSchema {
+            type_name: "fixed".to_string(),
+            name: "MD5".to_string(),
+            namespace: None,
+            doc: None,
+            aliases: Some(vec!["Md5Hash".to_string(), "MessageDigest5".to_string()]),
+            size: 16,
+            logical_type: None,
+            precision: None,
+            scale: None,
+            range: None,
+            name_range: None,
+            namespace_range: None,
+        };
+        let mut named_types = HashMap::new();
+        named_types.insert("MD5".to_string(), AvroType::Fixed(fixed));
+        let schema = make_schema(named_types);
+
+        let value = hover_value(&schema, "MD5").expect("hover should be Some");
+        assert!(
+            value.contains("**Aliases**: `Md5Hash`, `MessageDigest5`"),
+            "hover did not contain aliases: {value}"
+        );
+    }
+
+    #[test]
+    fn test_hover_field_with_aliases() {
+        let field = Field {
+            name: "user_id".to_string(),
+            field_type: Box::new(AvroType::Primitive(PrimitiveType::Long)),
+            doc: None,
+            default: None,
+            order: None,
+            aliases: Some(vec!["id".to_string(), "userId".to_string()]),
+            range: None,
+            name_range: None,
+            namespace_range: None,
+            type_name_range: None,
+            logical_type_range: None,
+            type_range: None,
+        };
+        let record = RecordSchema {
+            type_name: "record".to_string(),
+            name: "User".to_string(),
+            namespace: None,
+            doc: None,
+            aliases: None,
+            fields: vec![field],
+            range: None,
+            name_range: None,
+            namespace_range: None,
+        };
+        let mut named_types = HashMap::new();
+        named_types.insert("User".to_string(), AvroType::Record(record));
+        let schema = make_schema(named_types);
+
+        let value = hover_value(&schema, "user_id").expect("hover should be Some");
+        assert!(
+            value.contains("**Aliases**: `id`, `userId`"),
+            "hover did not contain aliases: {value}"
+        );
+    }
+
+    #[test]
+    fn test_hover_field_without_aliases() {
+        let field = Field {
+            name: "user_id".to_string(),
+            field_type: Box::new(AvroType::Primitive(PrimitiveType::Long)),
+            doc: None,
+            default: None,
+            order: None,
+            aliases: None,
+            range: None,
+            name_range: None,
+            namespace_range: None,
+            type_name_range: None,
+            logical_type_range: None,
+            type_range: None,
+        };
+        let record = RecordSchema {
+            type_name: "record".to_string(),
+            name: "User".to_string(),
+            namespace: None,
+            doc: None,
+            aliases: None,
+            fields: vec![field],
+            range: None,
+            name_range: None,
+            namespace_range: None,
+        };
+        let mut named_types = HashMap::new();
+        named_types.insert("User".to_string(), AvroType::Record(record));
+        let schema = make_schema(named_types);
+
+        let value = hover_value(&schema, "user_id").expect("hover should be Some");
+        assert!(
+            !value.contains("**Aliases**"),
+            "hover should not contain aliases line: {value}"
+        );
+    }
 
     #[test]
     fn test_get_word_fqn_cursor_on_first_segment() {
