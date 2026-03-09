@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.1.25] - 2026-03-09
+
+### Miscellaneous Tasks
+
+- Fix Mac builds
+- *(release)* Release version v0.1.25
+
 ## [0.1.24] - 2026-03-09
 
 ### Bug Fixes
