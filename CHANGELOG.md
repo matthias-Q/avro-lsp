@@ -2,6 +2,30 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.1.24] - 2026-03-09
+
+### Bug Fixes
+
+- *(ci)* Docker build step
+- Dockervariables
+
+### Refactor
+
+- Cleanup multiple levensthein implementations
+
+### Miscellaneous Tasks
+
+- Formatting
+- Fix docker step
+- Fix Dockerfile
+- Add retention to gitlab artifacts
+- Add AST debug tool
+- Add benchmark & cargo update
+- Cargo bump
+- Bump Rust version
+- Move to github
+- *(release)* Release version v0.1.24
+
 ## [0.1.23] - 2026-02-19
 
 ### Features
