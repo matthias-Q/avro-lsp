@@ -27,7 +27,7 @@ The extension includes pre-built binaries for:
 
 ### Install Extension
 
-1. Download the latest `.vsix` file from [GitLab Releases](https://gitlab.build-unite.unite.eu/matthias.queitsch/avro-lsp/-/releases)
+1. Download the latest `.vsix` file from [GitHub Releases](https://github.com/matthias-Q/avro-lsp/releases)
 
 2. Install via command line:
    ```bash
@@ -47,7 +47,7 @@ macOS binaries are not included due to cross-compilation complexity. macOS users
 
 1. **Build the LSP server from source:**
    ```bash
-   git clone https://gitlab.build-unite.unite.eu/matthias.queitsch/avro-lsp.git
+   git clone https://github.com/matthias-Q/avro-lsp.git
    cd avro-lsp
    cargo build --release
    sudo cp target/release/avro-lsp /usr/local/bin/
@@ -164,7 +164,7 @@ View schema outline with Ctrl+Shift+O (Cmd+Shift+O):
 
 ## Contributing
 
-Report issues and contribute at: [GitLab Repository](https://gitlab.build-unite.unite.eu/matthias.queitsch/avro-lsp)
+Report issues and contribute at: [GitHub Repository](https://github.com/matthias-Q/avro-lsp)
 
 ## License
 

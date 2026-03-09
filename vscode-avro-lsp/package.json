@@ -22,10 +22,10 @@
   ],
   "repository": {
     "type": "git",
-    "url": "https://gitlab.build-unite.unite.eu/matthias.queitsch/avro-lsp"
+    "url": "https://github.com/matthias-Q/avro-lsp"
   },
   "bugs": {
-    "url": "https://gitlab.build-unite.unite.eu/matthias.queitsch/avro-lsp/-/issues"
+    "url": "https://github.com/matthias-Q/avro-lsp/issues"
   },
   "activationEvents": [
     "onLanguage:avsc"

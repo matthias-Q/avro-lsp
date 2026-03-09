@@ -79,7 +79,7 @@ release TYPE="patch":
 
 # Push release to remote with tags
 push-release:
-    git push -o 'ci.skip' && git push --tags
+    git push && git push --tags
 
 # Build VS Code extension
 build-extension:
@@ -107,3 +107,7 @@ install-extension: package-extension
 # Show all available recipes
 help:
     @just --list
+
+# Publish to crates.io (patch/minor/major), e.g. `just publish` or `just publish minor`
+publish TYPE="patch" *FLAGS:
+    cargo release {{TYPE}} {{FLAGS}}

@@ -1,7 +1,8 @@
 # avro-lsp
 
-[![Pipeline Status](https://gitlab.build-unite.unite.eu/matthias.queitsch/avro-lsp/badges/main/pipeline.svg)](https://gitlab.build-unite.unite.eu/matthias.queitsch/avro-lsp/-/pipelines)
-[![Latest Release](https://gitlab.build-unite.unite.eu/matthias.queitsch/avro-lsp/-/badges/release.svg)](https://gitlab.build-unite.unite.eu/matthias.queitsch/avro-lsp/-/releases)
+[![CI](https://github.com/matthias-Q/avro-lsp/actions/workflows/ci.yml/badge.svg)](https://github.com/matthias-Q/avro-lsp/actions/workflows/ci.yml)
+[![Latest Release](https://img.shields.io/github/v/release/matthias-Q/avro-lsp)](https://github.com/matthias-Q/avro-lsp/releases)
+[![Crates.io](https://img.shields.io/crates/v/avro-lsp)](https://crates.io/crates/avro-lsp)
 
 A Language Server Protocol (LSP) implementation for Apache Avro schema files (`.avsc`).
 
@@ -109,7 +110,7 @@ A Language Server Protocol (LSP) implementation for Apache Avro schema files (`.
 
 ### Pre-built Binaries
 
-Download the latest release for your platform from [GitLab Releases](https://gitlab.build-unite.unite.eu/matthias.queitsch/avro-lsp/-/releases):
+Download the latest release for your platform from [GitHub Releases](https://github.com/matthias-Q/avro-lsp/releases):
 
 - **Linux (x86_64)**: `avro-lsp-linux-x64`
 - **Windows (x86_64)**: `avro-lsp-win32-x64.exe`
@@ -121,7 +122,7 @@ Download the latest release for your platform from [GitLab Releases](https://git
 ```bash
 # Download binary for your platform
 # For example, macOS Apple Silicon:
-curl -LO https://gitlab.build-unite.unite.eu/.../avro-lsp-darwin-arm64
+curl -LO https://github.com/matthias-Q/avro-lsp/releases/latest/download/avro-lsp-darwin-arm64
 
 # Make executable
 chmod +x avro-lsp-darwin-arm64
@@ -146,7 +147,7 @@ copy avro-lsp-win32-x64.exe C:\Users\YourName\.local\bin\avro-lsp.exe
 **All Platforms:**
 
 ```bash
-git clone https://gitlab.build-unite.unite.eu/matthias.queitsch/avro-lsp.git
+git clone https://github.com/matthias-Q/avro-lsp.git
 cd avro-lsp
 cargo build --release
 ```
@@ -175,7 +176,7 @@ copy target\release\avro-lsp.exe C:\Users\YourName\.local\bin\
 
 **All platforms (Linux, Windows, macOS)** can install the pre-built extension:
 
-1. Download the latest `.vsix` file from [GitLab Releases](https://gitlab.build-unite.unite.eu/matthias.queitsch/avro-lsp/-/releases)
+1. Download the latest `.vsix` file from [GitHub Releases](https://github.com/matthias-Q/avro-lsp/releases)
 2. Install via command line:
    ```bash
    code --install-extension avro-lsp-0.1.0.vsix
@@ -359,29 +360,29 @@ Exit codes:
 A Docker image is available for CI/CD pipelines and containerized environments:
 
 ```bash
-# Pull from GitLab Container Registry
-docker pull gitlab-dr.build-unite.unite.eu/matthias.queitsch/avro-lsp:latest
+# Pull from GitHub Container Registry
+docker pull ghcr.io/matthias-q/avro-lsp:latest
 
 # Lint schemas in current directory
-docker run -v $(pwd)/schemas:/workspace gitlab-dr.build-unite.unite.eu/matthias.queitsch/avro-lsp:latest
+docker run -v $(pwd)/schemas:/workspace ghcr.io/matthias-q/avro-lsp:latest
 
 # Lint with custom command
-docker run -v $(pwd):/workspace gitlab-dr.build-unite.unite.eu/matthias.queitsch/avro-lsp:latest \
+docker run -v $(pwd):/workspace ghcr.io/matthias-q/avro-lsp:latest \
   avro-lsp lint --workspace /workspace/schemas
 ```
 
-**GitLab CI Integration:**
-
-See [gitlab-ci-template.yml](gitlab-ci-template.yml) for ready-to-use CI job templates. Simply copy a job definition to your project's `.gitlab-ci.yml`:
+**GitHub Actions Integration:**
 
 ```yaml
 lint-avro-schemas:
-  stage: validate
-  image: gitlab-dr.build-unite.unite.eu/matthias.queitsch/avro-lsp:latest
-  script:
-    - avro-lsp lint --workspace schemas/
-  rules:
-    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+  runs-on: ubuntu-latest
+  steps:
+    - uses: actions/checkout@v4
+    - name: Lint Avro schemas
+      run: |
+        docker run -v ${{ github.workspace }}:/workspace \
+          ghcr.io/matthias-q/avro-lsp:latest \
+          avro-lsp lint --workspace /workspace/schemas
 ```
 
 ### LSP Server Mode

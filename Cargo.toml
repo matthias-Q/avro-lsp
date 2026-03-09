@@ -3,6 +3,23 @@ name = "avro-lsp"
 version = "0.1.23"
 edition = "2024"
 license = "MIT"
+description = "Language Server Protocol (LSP) implementation for Apache Avro schema files (.avsc)"
+repository = "https://github.com/matthias-Q/avro-lsp"
+homepage = "https://github.com/matthias-Q/avro-lsp"
+keywords = ["avro", "lsp", "language-server", "schema"]
+categories = ["development-tools"]
+readme = "README.md"
+exclude = [
+    "tests/fixtures/",
+    "benches/",
+    "vscode-avro-lsp/",
+    ".github/",
+    "Dockerfile",
+    "justfile",
+    "cliff.toml",
+    "AGENTS.md",
+    "GITHUB_SETUP.md",
+]
 
 [dependencies]
 async-lsp = "0.2.3"

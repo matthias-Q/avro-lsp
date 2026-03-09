@@ -1,0 +1,26 @@
+# cargo-release configuration
+# Run via: just publish [patch|minor|major]
+# Or directly: cargo release patch
+
+[package]
+# Run `cargo fmt` before releasing
+pre-release-hook = ["cargo", "fmt"]
+
+# Require clean working tree
+allow-branch = ["main"]
+
+# Push the release commit and tag automatically
+push = true
+push-tags = true
+
+# Create a GitHub release (via tag push + GitHub Actions)
+publish = true
+
+# Consolidate all version bump changes into one commit
+consolidate-commits = true
+
+# Commit message for the version bump
+pre-release-commit-message = "chore(release): Release version {{version}}"
+
+# Tag format
+tag-name = "v{{version}}"

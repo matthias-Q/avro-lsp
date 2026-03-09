@@ -1,3 +1,7 @@
+# Linker overrides for local cross-compilation.
+# Linux: install gcc-multilib or cross-linker (apt install gcc)
+# Windows cross: install mingw-w64 (apt install mingw-w64)
+# GitHub Actions sets these up via `sudo apt-get install mingw-w64`.
 [target.x86_64-unknown-linux-gnu]
 linker = "x86_64-linux-gnu-gcc"
 
