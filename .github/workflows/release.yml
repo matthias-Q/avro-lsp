@@ -107,13 +107,8 @@ jobs:
   docker:
     name: Docker image (GHCR)
     runs-on: ubuntu-latest
-    needs: build-linux
     steps:
       - uses: actions/checkout@v4
-      - name: Download Linux binary
-        uses: actions/download-artifact@v4
-        with:
-          name: avro-lsp-linux-x64
       - name: Log in to GHCR
         uses: docker/login-action@v3
         with:

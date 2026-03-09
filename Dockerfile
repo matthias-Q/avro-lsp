@@ -20,6 +20,7 @@ RUN mkdir -p src benches && \
     echo "fn main() {}" > benches/handlers_bench.rs && \
     echo "fn main() {}" > benches/workspace_bench.rs && \
     echo "fn main() {}" > benches/integration_bench.rs && \
+    echo "fn main() {}" > benches/e2e_lint_bench.rs && \
     cargo build --release && \
     rm -rf src benches
 
