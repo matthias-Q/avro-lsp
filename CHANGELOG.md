@@ -2,6 +2,20 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.1.28] - 2026-03-10
+
+### Features
+
+- Add `aliases` to hover text
+
+### Bug Fixes
+
+- Code action ranges for typo quickfix
+
+### Miscellaneous Tasks
+
+- *(release)* Release version v0.1.28
+
 ## [0.1.27] - 2026-03-09
 
 ### Miscellaneous Tasks
