@@ -22,7 +22,7 @@ pub(in crate::handlers::code_actions) fn create_fix_invalid_primitive_type(
         )
         .with_kind(CodeActionKind::QUICKFIX)
         .with_diagnostics(vec![diagnostic.clone()])
-        .add_edit(type_range, format!("\"{}\"", fixed_type))
+        .add_edit(type_range, fixed_type.to_string())
         .build(),
     )
 }
@@ -347,4 +347,84 @@ pub(in crate::handlers::code_actions) fn create_fix_invalid_logical_type_value(
         .add_edit(value_range, fixed_value.to_string())
         .build(),
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Build a minimal Diagnostic whose range covers only the typo content
+    /// (without surrounding quotes), as the parser stores it in `content_range`.
+    fn make_diagnostic(line: u32, start_char: u32, end_char: u32) -> Diagnostic {
+        Diagnostic {
+            range: Range {
+                start: Position {
+                    line,
+                    character: start_char,
+                },
+                end: Position {
+                    line,
+                    character: end_char,
+                },
+            },
+            severity: None,
+            code: None,
+            code_description: None,
+            source: Some("avro-lsp".to_string()),
+            message: "Invalid primitive type 'sting'. Did you mean 'string'?".to_string(),
+            related_information: None,
+            tags: None,
+            data: None,
+        }
+    }
+
+    /// The diagnostic range covers only the content inside the quotes (no surrounding
+    /// quotes). The code action must therefore replace just that content with the bare
+    /// suggested type — no extra quotes — so the surrounding `"…"` in the document is
+    /// preserved and the result is `"string"`, not `""string""`.
+    #[test]
+    fn test_fix_invalid_primitive_type_does_not_add_extra_quotes() {
+        // Simulate the line:  `                  "values": "sting"`
+        // Opening quote is at character 28, content starts at 29, ends at 34 (exclusive).
+        let uri = Url::parse("file:///test.avsc").unwrap();
+        let diagnostic = make_diagnostic(153, 29, 34); // content_range of "sting"
+
+        let action = create_fix_invalid_primitive_type(&uri, &diagnostic, "sting", Some("string"))
+            .expect("should produce a code action");
+
+        // Verify the action metadata
+        assert_eq!(action.kind, Some(CodeActionKind::QUICKFIX));
+
+        // Extract the single text edit
+        let changes = action
+            .edit
+            .as_ref()
+            .and_then(|e| e.changes.as_ref())
+            .expect("edit.changes must be present");
+        let edits: &Vec<_> = changes.values().next().expect("at least one URI entry");
+        assert_eq!(edits.len(), 1, "exactly one text edit expected");
+
+        let edit = &edits[0];
+
+        // The range must stay unchanged (the content range, without quotes)
+        assert_eq!(edit.range.start.character, 29);
+        assert_eq!(edit.range.end.character, 34);
+
+        // The replacement text must be the bare type name — no added quotes.
+        // If this were `"string"` (with quotes) the document would gain extra quotes
+        // because the surrounding `"…"` already exist in the source.
+        assert_eq!(
+            edit.new_text, "string",
+            "replacement must not wrap the type name in quotes"
+        );
+    }
+
+    #[test]
+    fn test_fix_invalid_primitive_type_returns_none_without_suggestion() {
+        let uri = Url::parse("file:///test.avsc").unwrap();
+        let diagnostic = make_diagnostic(0, 10, 15);
+
+        let action = create_fix_invalid_primitive_type(&uri, &diagnostic, "sting", None);
+        assert!(action.is_none(), "no action when there is no suggestion");
+    }
 }
