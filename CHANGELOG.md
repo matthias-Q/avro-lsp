@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.1.30] - 2026-03-12
+
+### Miscellaneous Tasks
+
+- Formatting
+- *(release)* Release version v0.1.30
+
 ## [0.1.29] - 2026-03-12
 
 ### Bug Fixes
