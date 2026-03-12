@@ -1,5 +1,6 @@
 use async_lsp::lsp_types::{Position, Range};
 use nom::{
+    IResult,
     branch::alt,
     bytes::complete::{tag, take},
     character::complete::{char, multispace0},
@@ -7,7 +8,6 @@ use nom::{
     multi::separated_list0,
     number::complete::double,
     sequence::preceded,
-    IResult,
 };
 use nom_locate::LocatedSpan;
 
