@@ -2,6 +2,16 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.1.29] - 2026-03-12
+
+### Bug Fixes
+
+- Trailing comma linting improvement
+
+### Miscellaneous Tasks
+
+- *(release)* Release version v0.1.29
+
 ## [0.1.28] - 2026-03-10
 
 ### Features
