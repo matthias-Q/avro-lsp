@@ -107,7 +107,9 @@ pub(super) fn improve_error_message(
 
     let location = format!("line {}, column {}", pos.line + 1, pos.character + 1);
 
-    if was_adjusted {
+    if base_msg.starts_with("Trailing comma") {
+        format!("Trailing comma at {}", location)
+    } else if was_adjusted {
         format!(
             "JSON syntax error at {}: Expected comma or closing brace",
             location

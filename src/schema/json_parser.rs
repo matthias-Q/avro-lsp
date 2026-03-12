@@ -1,6 +1,5 @@
 use async_lsp::lsp_types::{Position, Range};
 use nom::{
-    IResult,
     branch::alt,
     bytes::complete::{tag, take},
     character::complete::{char, multispace0},
@@ -8,6 +7,7 @@ use nom::{
     multi::separated_list0,
     number::complete::double,
     sequence::preceded,
+    IResult,
 };
 use nom_locate::LocatedSpan;
 
@@ -368,15 +368,17 @@ pub fn parse_json(input: &str) -> Result<JsonValue, String> {
             let error_position = span_to_position(e.input);
             let mut actual_position = error_position;
 
-            // Try to find the actual location of missing comma by scanning the full input
-            // Look for specific patterns that indicate missing commas:
-            // 1. } followed by { (missing comma between objects in array)
-            // 2. ] followed by [ (missing comma between arrays)
-            // 3. } followed by " (missing comma between object and next field key)
-            // 4. " followed by " (missing comma between strings or after string value)
+            // Try to find the actual location of the syntax error by scanning the full input.
+            // Look for specific patterns:
+            // 1. , followed by } or ] (trailing comma)
+            // 2. } followed by { (missing comma between objects in array)
+            // 3. ] followed by [ (missing comma between arrays)
+            // 4. } followed by " (missing comma between object and next field key)
+            // 5. " followed by " (missing comma between strings or after string value)
 
             let bytes = input.as_bytes();
             let mut i = 0;
+            let mut is_trailing_comma = false;
 
             while i < bytes.len() {
                 let current = bytes[i];
@@ -390,8 +392,14 @@ pub fn parse_json(input: &str) -> Result<JsonValue, String> {
                 if j < bytes.len() {
                     let next = bytes[j];
 
-                    // Check for missing comma patterns
-                    let is_missing_comma = match (current, next) {
+                    // Check for trailing comma and missing comma patterns
+                    let matched = match (current, next) {
+                        // Trailing comma before closing brace or bracket
+                        // e.g. {"key": "val",} or [1, 2,]
+                        (b',', b'}') | (b',', b']') => {
+                            is_trailing_comma = true;
+                            true
+                        }
                         // Object followed by object (in array)
                         (b'}', b'{') => true,
                         // Array followed by array
@@ -412,21 +420,30 @@ pub fn parse_json(input: &str) -> Result<JsonValue, String> {
                         _ => false,
                     };
 
-                    if is_missing_comma {
-                        // Report position right after the first delimiter
-                        let pos_after = i + 1;
-                        actual_position = offset_to_position_in_str(input, pos_after);
+                    if matched {
+                        // For trailing commas, point at the comma itself.
+                        // For missing commas, point right after the preceding delimiter.
+                        let report_pos = if is_trailing_comma { i } else { i + 1 };
+                        actual_position = offset_to_position_in_str(input, report_pos);
                         break;
                     }
                 }
                 i += 1;
             }
 
-            Err(format!(
-                "Parse error at line {}, column {}",
-                actual_position.line + 1,
-                actual_position.character + 1
-            ))
+            if is_trailing_comma {
+                Err(format!(
+                    "Trailing comma at line {}, column {}",
+                    actual_position.line + 1,
+                    actual_position.character + 1
+                ))
+            } else {
+                Err(format!(
+                    "Parse error at line {}, column {}",
+                    actual_position.line + 1,
+                    actual_position.character + 1
+                ))
+            }
         }
         Err(nom::Err::Incomplete(_)) => Err("Parse error: incomplete input".to_string()),
     }
@@ -626,6 +643,64 @@ mod tests {
             result.is_ok(),
             "Valid JSON should parse successfully: {:?}",
             result.err()
+        );
+    }
+
+    #[test]
+    fn test_trailing_comma_in_array_reports_correct_line() {
+        // Trailing comma after last element in array - error must point at line 6
+        let input = r#"{
+  "type": "record",
+  "name": "User",
+  "fields": [
+    {"name": "name", "type": "string"},
+    {"name": "age", "type": "int"},
+  ]
+}"#;
+        // Lines (1-indexed):
+        // 6:     {"name": "age", "type": "int"},   <- trailing comma is here
+
+        let result = parse_json(input);
+        assert!(result.is_err(), "Should fail to parse with trailing comma");
+
+        let err_msg = result.unwrap_err();
+        assert!(
+            err_msg.contains("line 6"),
+            "Error should point to line 6 (the trailing comma), got: '{}'",
+            err_msg
+        );
+        assert!(
+            err_msg.contains("Trailing comma"),
+            "Error message should mention 'Trailing comma', got: '{}'",
+            err_msg
+        );
+    }
+
+    #[test]
+    fn test_trailing_comma_in_object_reports_correct_line() {
+        // Trailing comma after last field in object
+        let input = r#"{
+  "type": "record",
+  "name": "User",
+}"#;
+        // Line 3: "name": "User",   <- trailing comma
+
+        let result = parse_json(input);
+        assert!(
+            result.is_err(),
+            "Should fail to parse with trailing comma in object"
+        );
+
+        let err_msg = result.unwrap_err();
+        assert!(
+            err_msg.contains("line 3"),
+            "Error should point to line 3 (the trailing comma), got: '{}'",
+            err_msg
+        );
+        assert!(
+            err_msg.contains("Trailing comma"),
+            "Error message should mention 'Trailing comma', got: '{}'",
+            err_msg
         );
     }
 
