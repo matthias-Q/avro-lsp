@@ -406,10 +406,10 @@ pub fn parse_json(input: &str) -> Result<JsonValue, String> {
                         (b']', b'[') => true,
                         // Closing quote followed by opening quote (between strings or after value)
                         (b'"', b'"') => {
-                            // Need to check if this is not inside a string
-                            // For now, assume it's a missing comma if we have this pattern
-                            // after skipping whitespace
-                            true
+                            // Only flag as a missing-comma if there is whitespace between the
+                            // two quotes. Adjacent quotes (j == i + 1) form an empty-string
+                            // literal "" and must not be treated as a missing comma.
+                            j > i + 1
                         }
                         // Object closing followed by quote (missing comma before next key)
                         (b'}', b'"') => {
@@ -701,6 +701,40 @@ mod tests {
             err_msg.contains("Trailing comma"),
             "Error message should mention 'Trailing comma', got: '{}'",
             err_msg
+        );
+    }
+
+    #[test]
+    fn test_empty_string_value_does_not_cause_false_positive() {
+        // A field with an empty-string default followed by another field used to
+        // falsely trigger the missing-comma detector on the "" literal (line 9)
+        // instead of reporting the actual missing comma on line 13.
+        let input = r#"{
+  "type": "record",
+  "name": "Note",
+  "fields": [
+    {
+      "name": "note",
+      "type": "string",
+      "default": "",
+      "doc": "Optional note"
+    },
+    {
+      "name": "billing_address",
+      "type": "Address"
+      "doc": "Billing address"
+    }
+  ]
+}"#;
+        // Line 13 (1-indexed): "type": "Address"  <- missing comma at end of this line
+        let err = parse_json(input).unwrap_err();
+        assert!(
+            err.contains("line 13"),
+            "Error should point to the actual missing-comma location (line 13), got: '{err}'"
+        );
+        assert!(
+            !err.contains("line 9"),
+            "Error must NOT point to the empty-string literal on line 9, got: '{err}'"
         );
     }
 
