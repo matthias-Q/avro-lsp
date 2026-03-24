@@ -2,6 +2,17 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.1.31] - 2026-03-24
+
+### Bug Fixes
+
+- More trailing comma issues
+
+### Miscellaneous Tasks
+
+- Cargo update
+- *(release)* Release version v0.1.31
+
 ## [0.1.30] - 2026-03-12
 
 ### Miscellaneous Tasks
